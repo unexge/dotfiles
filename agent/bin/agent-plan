@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ── Usage ─────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+Usage: agent-plan [options] [markdown-file]
+
+Start an interactive Pi session in planning mode. Discuss and refine a
+plan, then convert it into Dex tasks when ready.
+
+Arguments:
+  [markdown-file]    Optional planning document to seed the session
+                     (plan, spec, design doc, roadmap)
+
+Options:
+  --parent <id>      Create tasks under an existing parent task
+  --priority <n>     Set task priority
+  --no-scaffold      Skip the API scaffolding step
+  -h, --help         Show this help
+
+Examples:
+  agent-plan                              # Start a blank planning session
+  agent-plan docs/SPEC.md                 # Plan from a spec document
+  agent-plan ROADMAP.md --parent abc123   # Plan under an existing task
+  agent-plan SPEC.md --no-scaffold        # Plan without scaffolding step
+EOF
+    exit 0
+}
+
+require_value() {
+    if [ "$#" -lt 2 ]; then
+        echo "Error: option '$1' requires a value" >&2
+        echo "Run 'agent-plan --help' for usage." >&2
+        exit 1
+    fi
+}
+
+# ── Parse arguments ───────────────────────────────────────────────────
+PLAN_FILE=""
+PARENT_ID=""
+PRIORITY=""
+NO_SCAFFOLD=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        --no-scaffold)
+            NO_SCAFFOLD=true
+            shift
+            ;;
+        --parent)
+            require_value "$@"
+            PARENT_ID="$2"
+            shift 2
+            ;;
+        --priority)
+            require_value "$@"
+            PRIORITY="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            echo "Run 'agent-plan --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$PLAN_FILE" ]; then
+                PLAN_FILE="$1"
+            else
+                echo "Error: Unexpected argument '$1'" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -n "$PLAN_FILE" ] && [ ! -f "$PLAN_FILE" ]; then
+    echo "Error: File '$PLAN_FILE' does not exist." >&2
+    exit 1
+fi
+
+if [ -n "$PRIORITY" ] && ! [[ "$PRIORITY" =~ ^[0-9]+$ ]]; then
+    echo "Error: option '--priority' expects a non-negative integer, got '$PRIORITY'" >&2
+    exit 1
+fi
+
+AGENT_BINARY="${AGENT_BINARY:-pi}"
+
+if ! command -v "$AGENT_BINARY" >/dev/null 2>&1; then
+    echo "Error: '$AGENT_BINARY' is not executable or does not exist" >&2
+    exit 1
+fi
+
+# ── Build the initial prompt ──────────────────────────────────────────
+DEX_PLAN_OPTS=""
+[ -n "$PARENT_ID" ] && DEX_PLAN_OPTS="$DEX_PLAN_OPTS --parent $PARENT_ID"
+[ -n "$PRIORITY" ] && DEX_PLAN_OPTS="$DEX_PLAN_OPTS --priority $PRIORITY"
+
+PI_ARGS=()
+
+if [ -n "$PLAN_FILE" ]; then
+    PLAN_FILE_ABS=$(realpath "$PLAN_FILE")
+    PI_ARGS+=("@${PLAN_FILE_ABS}")
+fi
+
+# ── Build scaffolding instructions ────────────────────────────────────
+SCAFFOLD_INSTRUCTIONS=""
+if [ "$NO_SCAFFOLD" = false ]; then
+    read -r -d '' SCAFFOLD_INSTRUCTIONS <<'SCAFFOLD' || true
+
+## API Scaffolding Phase
+
+After the plan discussion converges, but BEFORE creating Dex tasks, propose an
+API scaffolding so I can review the planned interfaces.
+
+### What to scaffold
+- New files, modules, types, traits, structs, classes, interfaces
+- Public function/method signatures with placeholder bodies
+- New configuration shapes, CLI flags, protocol messages
+- Key constants and enums
+
+### Placeholder bodies by language
+Use the idiomatic "not implemented" marker for the project's language(s):
+| Language      | Placeholder                                |
+|---------------|--------------------------------------------|
+| Rust          | `todo!("description")`                     |
+| Go            | `panic("TODO: description")`               |
+| Python        | `raise NotImplementedError("description")` |
+| TypeScript/JS | `throw new Error("TODO: description")`     |
+| Zig           | `return error.NotImplemented;`             |
+
+### Workflow
+1. Create a git branch `plan/scaffold-<topic>` from the current HEAD.
+2. Add the scaffolding files/changes and commit them with message
+   "chore: API scaffold for <topic> (throwaway)".
+3. Present a summary of every new/changed file, highlighting the public API
+   surface (signatures, types, module structure).
+4. Ask me to review. Iterate on feedback - adjust signatures, rename things,
+   add/remove items - committing each round.
+5. Once I approve, record the final scaffold diff, then
+   **delete the scaffold branch** (`git checkout - && git branch -D plan/scaffold-<topic>`)
+   so the working tree is clean again.
+6. NOW proceed to create Dex tasks, using the approved API surface as the
+   concrete spec for each task's description.
+SCAFFOLD
+fi
+
+if [ "$NO_SCAFFOLD" = true ]; then
+    STEP3="3. When I say we're ready (or you think the plan is solid), use /skill:dex to create the Dex tasks."
+else
+    STEP3="3. When the plan is solid, move to the API Scaffolding Phase (see below).
+4. After I approve the scaffold, use /skill:dex to create the Dex tasks with the approved API as the spec."
+fi
+
+INITIAL_PROMPT="You are in planning mode. Your goal is to help me think through a plan and, when we're ready, convert it into Dex tasks using /skill:dex.
+
+Workflow:
+1. If a planning document was provided, read and summarize it.
+2. Discuss the plan with me - ask clarifying questions, suggest improvements, identify gaps.
+${STEP3}
+${SCAFFOLD_INSTRUCTIONS}
+dex options:${DEX_PLAN_OPTS:- (none)}
+
+Let's start - what are we building?"
+
+PI_ARGS+=("$INITIAL_PROMPT")
+
+# ── Launch interactive Pi session ─────────────────────────────────────
+exec "$AGENT_BINARY" "${PI_ARGS[@]}"

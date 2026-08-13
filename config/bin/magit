@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+# Terminal Emacs needs >=256 colors for the gruvbox theme to apply at all;
+# with TERM=xterm (8 colors) it falls back to light-theme defaults.
+case "$(tput colors 2>/dev/null || echo 8)" in
+  8|16) export TERM=xterm-256color ;;
+esac
+export COLORTERM=truecolor
+
+emacs -nw -l magit -f magit-status \
+      --eval "(local-set-key \"q\" #'kill-emacs)" \
+      --eval "(setq mac-command-modifier #'meta)" \
+      -f delete-other-windows

@@ -1,0 +1,5 @@
+# Global gitignore
+.agent/
+.dex/
+
+**/.claude/settings.local.json

@@ -1,0 +1,11 @@
+; Delta config - used by magit-delta and CLI git
+; Pairs with the gruvbox-dark-hard pi theme.
+
+[delta]
+	syntax-theme = gruvbox-dark
+	plus-style = normal "#284028"
+	plus-emph-style = normal "#3d6332"
+	plus-non-emph-style = normal "#284028"
+	minus-style = normal "#402828"
+	minus-emph-style = normal "#7a2e2e"
+	minus-non-emph-style = normal "#402828"

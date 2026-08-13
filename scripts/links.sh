@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$REPO_ROOT/scripts/platform.sh"
+
+info() {
+  echo "[INFO] $*"
+}
+
+backup_target() {
+  local target="$1"
+  local backup="${target}.bak.$(date +%Y%m%d%H%M%S)"
+  local suffix=1
+
+  while [[ -e "$backup" || -L "$backup" ]]; do
+    backup="${target}.bak.$(date +%Y%m%d%H%M%S).$suffix"
+    suffix=$((suffix + 1))
+  done
+
+  info "Backing up $target to $backup"
+  mv "$target" "$backup"
+}
+
+ensure_directory() {
+  local directory="$1"
+
+  if [[ -L "$directory" ]]; then
+    backup_target "$directory"
+  elif [[ -e "$directory" && ! -d "$directory" ]]; then
+    backup_target "$directory"
+  fi
+
+  mkdir -p "$directory"
+}
+
+link_file() {
+  local source="$1"
+  local target="$2"
+
+  ensure_directory "$(dirname "$target")"
+
+  if [[ -L "$target" ]]; then
+    if [[ "$(readlink "$target")" == "$source" ]]; then
+      return
+    fi
+    backup_target "$target"
+  elif [[ -e "$target" ]]; then
+    backup_target "$target"
+  fi
+
+  ln -s "$source" "$target"
+  info "Linked $target -> $source"
+}
+
+# Drop links this repository created for files it no longer contains, so that
+# `dot link` can actually repair a target directory rather than only add to it.
+prune_stale_links() {
+  local source_root="$1"
+  local target_root="$2"
+  local link
+  local destination
+
+  while IFS= read -r -d '' link; do
+    destination="$(readlink "$link")"
+    if [[ "$destination" == "$source_root"/* && ! -e "$destination" ]]; then
+      info "Removing stale link $link"
+      rm "$link"
+    fi
+  done < <(find "$target_root" -type l -print0)
+}
+
+# Only tracked files are linked, so untracked junk in the repository (a stray
+# .DS_Store, an editor swap file) never leaks into $HOME.
+link_tree() {
+  local source_root="$1"
+  local target_root="$2"
+  local relative
+
+  ensure_directory "$target_root"
+
+  while IFS= read -r -d '' relative; do
+    link_file "$source_root/$relative" "$target_root/$relative"
+  done < <(git -C "$source_root" ls-files -z)
+
+  prune_stale_links "$source_root" "$target_root"
+}
+
+link_tree "$REPO_ROOT/config/nushell" "$NUSHELL_HOME"
+if [[ ! -e "$NUSHELL_HOME/local.nu" ]]; then
+  touch "$NUSHELL_HOME/local.nu"
+  info "Created local Nushell config at $NUSHELL_HOME/local.nu"
+fi
+link_tree "$REPO_ROOT/config/zellij" "$ZELLIJ_HOME"
+link_tree "$REPO_ROOT/config/git" "$CONFIG_HOME/git"
+link_tree "$REPO_ROOT/config/helix" "$CONFIG_HOME/helix"
+link_file "$REPO_ROOT/config/emacs/init.el" "$HOME/.emacs.d/init.el"
+link_tree "$REPO_ROOT/config/bin" "$HOME/.local/bin"
+
+link_file "$REPO_ROOT/bin/dot" "$HOME/.local/bin/dot"
+link_tree "$REPO_ROOT/agent/bin" "$HOME/.local/bin"
+link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
+link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+link_file "$REPO_ROOT/agent/settings.json" "$HOME/.pi/agent/settings.json"
+link_tree "$REPO_ROOT/agent/skills" "$HOME/.pi/agent/skills"
+link_tree "$REPO_ROOT/agent/themes" "$HOME/.pi/agent/themes"
+
+git config --global core.excludesFile "$CONFIG_HOME/git/ignore"
+if ! git config --global --get-all include.path 2>/dev/null | grep -Fqx "$CONFIG_HOME/git/delta.gitconfig"; then
+  git config --global --add include.path "$CONFIG_HOME/git/delta.gitconfig"
+fi
+
+info "Configuration links are up to date"

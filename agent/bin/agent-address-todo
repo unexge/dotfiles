@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ── Usage ─────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+Usage: agent-address-todo [options]
+
+Find every \`TODO(agent): ...\` marker in the working-tree changes
+(staged + unstaged) and address them as a unified feedback set across
+the whole changeset. A directive on one line (e.g. "use this logging
+form") is applied everywhere in the changeset where it fits, not only
+at the marker.
+
+Clear, fully-addressed TODOs are removed. Partially-addressed TODOs are
+kept with the unresolved remainder. Unclear TODOs are left in place and
+surfaced as questions instead of being guessed at.
+
+Options:
+  -h, --help    Show this help
+
+Examples:
+  # After leaving \`TODO(agent): ...\` notes in code you reviewed:
+  agent-address-todo
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            echo "Run 'agent-address-todo --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'" >&2
+            echo "Run 'agent-address-todo --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
+AGENT_BINARY="${AGENT_BINARY:-pi}"
+
+if ! command -v "$AGENT_BINARY" >/dev/null 2>&1; then
+    echo "Error: '$AGENT_BINARY' is not executable or does not exist" >&2
+    exit 1
+fi
+
+# ── Sanity: inside a git repo ─────────────────────────────────────────
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: not inside a git repository." >&2
+    exit 1
+fi
+
+# ── Look for TODO(agent) markers in working-tree changes ──────────────
+DIFF=$(git diff HEAD 2>/dev/null || true)
+
+if [ -z "$DIFF" ]; then
+    echo "No staged or unstaged changes." >&2
+    exit 0
+fi
+
+# Only count markers on added/changed lines.
+TODO_HITS=$(echo "$DIFF" | grep -E '^\+.*TODO\(agent\):' || true)
+if [ -z "$TODO_HITS" ]; then
+    echo "No 'TODO(agent):' markers found in working-tree changes." >&2
+    exit 0
+fi
+
+TODO_COUNT=$(echo "$TODO_HITS" | wc -l | tr -d ' ')
+echo "Found $TODO_COUNT 'TODO(agent):' marker(s) in working-tree changes." >&2
+
+# ── Build prompt for Pi ───────────────────────────────────────────────
+PROMPT="You are addressing reviewer feedback left as \`TODO(agent): ...\`
+markers in the working tree of a git repository. The human reviewer
+inserted these markers while reading the diff in their editor.
+
+## Task
+
+1. Run \`git diff HEAD\` to see the full changeset (staged + unstaged).
+2. Find every line containing \`TODO(agent):\`. Each one is a piece of
+   feedback for you to address.
+3. Treat every TODO as feedback about the WHOLE changeset, not only the
+   line it sits on. Example: if a TODO says \"logging should use this
+   form\", apply that directive to every relevant call site in the
+   changeset, not just at the marker.
+4. Apply the changes directly to the files.
+
+## Per-TODO handling
+
+- **Clear and fully addressable** - make the change and DELETE the
+  \`TODO(agent): ...\` comment. No clear marker should remain.
+- **Partially addressable** - apply the part you can, then EDIT the
+  marker so it describes only the unresolved remainder. Do not delete a
+  marker whose intent is not fully resolved.
+- **Unclear or ambiguous** - do NOT guess. Leave the marker in place
+  and list the question for the user at the end of your response.
+
+## Reporting
+
+When done, print a short summary covering:
+- How many markers were addressed and removed.
+- Which markers remained, and why (partial vs unclear).
+- Any clarifying questions for unclear markers.
+
+## Working-tree hygiene
+
+- Do NOT \`git stash\`, \`git add\`, \`git commit\`, \`git reset\`, \`git
+  checkout\`, or otherwise touch the index or stash. Edit files only.
+- The user wants to read the diff themselves afterwards, so leave staged
+  and unstaged state exactly as you found it."
+
+# ── Run Pi interactively ──────────────────────────────────────────────
+exec "$AGENT_BINARY" "$PROMPT"

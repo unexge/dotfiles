@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  SOURCE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$SOURCE_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: dot <command>
+
+Commands:
+  sync      Pull the repository, apply configuration, and update dependencies
+  apply     Apply configuration and update dependencies without pulling
+  link      Create or repair configuration links
+  packages  Install and update declared dependencies
+  doctor    Check the resulting installation
+  help      Show this help
+EOF
+}
+
+pull_repo() {
+  if ! git -C "$REPO_ROOT" rev-parse --verify HEAD >/dev/null 2>&1; then
+    echo "[WARN] Repository has no commits yet; skipping pull"
+    return
+  fi
+
+  if ! git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    echo "[WARN] Current branch has no upstream; skipping pull"
+    return
+  fi
+
+  echo "[INFO] Pulling dotfiles changes"
+  git -C "$REPO_ROOT" pull --ff-only
+}
+
+apply() {
+  "$REPO_ROOT/scripts/links.sh"
+  "$REPO_ROOT/scripts/packages.sh"
+  "$REPO_ROOT/scripts/doctor.sh"
+}
+
+command_name="${1:-sync}"
+case "$command_name" in
+  sync)
+    pull_repo
+    exec "$REPO_ROOT/bin/dot" apply
+    ;;
+  apply)
+    apply
+    ;;
+  link)
+    exec "$REPO_ROOT/scripts/links.sh"
+    ;;
+  packages)
+    exec "$REPO_ROOT/scripts/packages.sh"
+    ;;
+  doctor)
+    exec "$REPO_ROOT/scripts/doctor.sh"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ── Usage ─────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+Usage: agent-loop [options]
+
+Continuously pick up ready Dex tasks, implement them with a Pi agent,
+run review cycles, and commit the results.
+
+Options:
+  --review-cycles <n>    Number of review cycles per task (default: 2)
+  --stuck-timeout <s>    Seconds of inactivity before killing agent (default: 300)
+  --agent-binary <path>  Path to Pi binary (default:pi)
+  -h, --help             Show this help
+
+Environment variables:
+  AGENT_BINARY       Same as --agent-binary
+  REVIEW_CYCLES      Same as --review-cycles
+  STUCK_TIMEOUT      Same as --stuck-timeout
+
+Examples:
+  agent-loop
+  agent-loop --review-cycles 3 --stuck-timeout 600
+EOF
+    exit 0
+}
+
+require_value() {
+    if [ "$#" -lt 2 ]; then
+        echo "Error: option '$1' requires a value" >&2
+        echo "Run 'agent-loop --help' for usage." >&2
+        exit 1
+    fi
+}
+
+require_uint() {
+    if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+        echo "Error: option '$1' expects a non-negative integer, got '$2'" >&2
+        exit 1
+    fi
+}
+
+# ── Parse arguments ───────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        --review-cycles)
+            require_value "$@"
+            REVIEW_CYCLES="$2"
+            shift 2
+            ;;
+        --stuck-timeout)
+            require_value "$@"
+            STUCK_TIMEOUT="$2"
+            shift 2
+            ;;
+        --agent-binary)
+            require_value "$@"
+            AGENT_BINARY="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            echo "Run 'agent-loop --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'" >&2
+            echo "Run 'agent-loop --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
+AGENT_BINARY="${AGENT_BINARY:-pi}"
+REVIEW_CYCLES="${REVIEW_CYCLES:-2}"
+STUCK_TIMEOUT="${STUCK_TIMEOUT:-300}"
+
+require_uint --review-cycles "$REVIEW_CYCLES"
+require_uint --stuck-timeout "$STUCK_TIMEOUT"
+
+if ! command -v "$AGENT_BINARY" >/dev/null 2>&1; then
+    echo "Error: '$AGENT_BINARY' is not executable or does not exist" >&2
+    exit 1
+fi
+
+case "$(uname -s)" in
+    Darwin) STAT_MTIME=(stat -f %m) ;;
+    Linux) STAT_MTIME=(stat -c %Y) ;;
+    *)
+        echo "Error: unsupported operating system: $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+    echo "Error: agent-loop must run inside a git repository with at least one commit." >&2
+    exit 1
+fi
+
+# A stuck agent is recovered with `git reset --hard` plus `git clean -fd`, so
+# anything already in the working tree would be destroyed.
+if [ -n "$(git status --porcelain)" ]; then
+    echo "Error: working tree is not clean." >&2
+    echo "Commit or stash your changes before running agent-loop." >&2
+    exit 1
+fi
+
+mkdir -p .agent/logs
+
+LOOP_COUNT=0
+
+file_mtime() {
+    "${STAT_MTIME[@]}" "$1"
+}
+
+# Run a pi agent with stuck-detection. Exits non-zero if agent was stuck/failed.
+# Usage: run_agent <log_file> <prompt>
+run_agent() {
+    local log_file="$1"
+    local prompt="$2"
+
+    "$AGENT_BINARY" --mode json -p "$prompt" >> "$log_file" &
+    local agent_pid=$!
+
+    # Monitor for stuck agent
+    while kill -0 "$agent_pid" 2>/dev/null; do
+        sleep 30
+        if [ -f "$log_file" ]; then
+            local last_modified
+            last_modified=$(file_mtime "$log_file")
+            local current_time
+            current_time=$(date +%s)
+            local time_diff=$((current_time - last_modified))
+
+            if [ "$time_diff" -ge "$STUCK_TIMEOUT" ]; then
+                echo ""
+                echo "WARNING: Agent stuck for $((time_diff / 60)) minutes! Killing..."
+                kill -9 "$agent_pid" 2>/dev/null || true
+                wait "$agent_pid" 2>/dev/null || true
+                return 1
+            fi
+        fi
+    done
+
+    wait "$agent_pid" || true
+    return 0
+}
+
+# Reset repo to clean state after a stuck/failed agent
+reset_repo() {
+    local task_id="$1"
+    local log_file="$2"
+    echo "Performing git reset --hard HEAD..."
+    git reset --hard HEAD
+    echo "Cleaning untracked files..."
+    git clean -fd
+    echo "Marking task $task_id back to ready..."
+    dex edit "$task_id" -s ready >/dev/null \
+        || echo "Warning: could not mark $task_id ready" >&2
+
+    # Clear started_at in the JSONL file so the task looks freshly created.
+    # TODO: Replace with `dex edit "$task_id" --unstart` once
+    #       https://github.com/dcramer/dex/pull/125 is merged.
+    local dex_jsonl
+    dex_jsonl="$(dex dir 2>/dev/null)/tasks.jsonl"
+    if [ -f "$dex_jsonl" ]; then
+        jq -c "if .id == \"$task_id\" then .started_at = null else . end" \
+            "$dex_jsonl" > "${dex_jsonl}.tmp" && mv "${dex_jsonl}.tmp" "$dex_jsonl"
+    fi
+    if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+        rm -f "$log_file"
+        echo "Cleaned up log file: $log_file"
+    fi
+}
+
+while true; do
+    LOOP_COUNT=$((LOOP_COUNT + 1))
+
+    echo "========================================"
+    echo "Task loop iteration #$LOOP_COUNT"
+    echo "========================================"
+
+    # Get first ready task from dex
+    TASK_JSON=$(dex list --ready -f --json 2>/dev/null || echo "[]")
+    TASK_ID=$(echo "$TASK_JSON" | jq -r '.[0].id // empty')
+
+    if [ -z "$TASK_ID" ]; then
+        echo "No ready tasks remaining after $LOOP_COUNT loop(s). Exiting."
+        break
+    fi
+
+    TASK_NAME=$(echo "$TASK_JSON" | jq -r '.[0].name')
+    LOG_FILE=".agent/logs/${TASK_ID}.jsonl"
+
+    echo "Task: $TASK_ID - $TASK_NAME"
+    echo "Log:  $LOG_FILE"
+    echo ""
+
+    # ── Phase 1: Mark in progress ─────────────────────────────────────
+    echo "── Phase 1: Mark in progress ──"
+    if ! dex start "$TASK_ID" >/dev/null; then
+        echo "Error: failed to mark $TASK_ID in progress" >&2
+        exit 1
+    fi
+    echo "DONE"
+    echo ""
+
+    # ── Phase 2: Implement ────────────────────────────────────────────
+    echo "── Phase 2: Implement ──"
+
+    IMPL_PROMPT="You are working on Dex task: $TASK_ID.
+
+Read the full task details with: dex show $TASK_ID --full
+If there is a parent task, read that too for context.
+
+Implement the task until all completion criteria are met.
+Do NOT commit or mark the task as complete - just implement."
+
+    if ! run_agent "$LOG_FILE" "$IMPL_PROMPT"; then
+        echo "Implementation agent stuck. Resetting..."
+        reset_repo "$TASK_ID" "$LOG_FILE"
+        continue
+    fi
+    echo "DONE"
+    echo ""
+
+    # ── Phase 3: Review & fix (looped) ────────────────────────────────
+    echo "── Phase 3: Review & fix ($REVIEW_CYCLES cycles) ──"
+
+    REVIEW_FAILED=false
+    for ((cycle=1; cycle<=REVIEW_CYCLES; cycle++)); do
+        echo "  Review cycle $cycle/$REVIEW_CYCLES"
+
+        # Stage everything so the reviewer can see the diff
+        git add -A
+
+        REVIEW_PROMPT="/skill:code-review
+
+Context: you are reviewing changes for Dex task: $TASK_ID.
+Read the task details with: dex show $TASK_ID --full
+
+After reviewing, fix any issues you find directly in the code.
+Do NOT commit or mark the task as complete."
+
+        if ! run_agent "$LOG_FILE" "$REVIEW_PROMPT"; then
+            echo "Review agent stuck on cycle $cycle. Resetting..."
+            reset_repo "$TASK_ID" "$LOG_FILE"
+            REVIEW_FAILED=true
+            break
+        fi
+    done
+
+    if [ "$REVIEW_FAILED" = true ]; then
+        continue
+    fi
+    echo "DONE"
+    echo ""
+
+    # ── Phase 4: Mark complete ────────────────────────────────────────
+    echo "── Phase 4: Mark complete ──"
+    if ! dex complete "$TASK_ID" \
+        --result "Implemented and reviewed ($REVIEW_CYCLES review cycles)." \
+        --no-commit >/dev/null; then
+        echo "Error: failed to mark $TASK_ID complete" >&2
+        exit 1
+    fi
+    echo "DONE"
+    echo ""
+
+    # ── Phase 5: Commit ───────────────────────────────────────────────
+    echo "── Phase 5: Commit ──"
+
+    HEAD_BEFORE_COMMIT=$(git rev-parse HEAD)
+    git add -A
+
+    COMMIT_PROMPT="/skill:git-commit
+
+Context: committing changes for Dex task: $TASK_ID.
+Read task details with: dex show $TASK_ID --full
+
+Changes are already staged. Do NOT ask for confirmation - just commit."
+
+    if ! run_agent "$LOG_FILE" "$COMMIT_PROMPT"; then
+        echo "Commit agent stuck. Resetting..."
+        reset_repo "$TASK_ID" "$LOG_FILE"
+        continue
+    fi
+
+    COMMIT_SHA=$(git rev-parse HEAD)
+    if [ "$COMMIT_SHA" = "$HEAD_BEFORE_COMMIT" ]; then
+        echo "Commit agent produced no commit. Resetting..."
+        reset_repo "$TASK_ID" "$LOG_FILE"
+        continue
+    fi
+
+    # Link the commit SHA to the completed task
+    dex edit "$TASK_ID" --commit "$COMMIT_SHA" >/dev/null \
+        || echo "Warning: could not link $COMMIT_SHA to $TASK_ID" >&2
+    git log -1 --format="%B" HEAD
+    echo "DONE"
+
+    # ── Cleanup: remove log file ─────────────────────────────────────
+    if [ -f "$LOG_FILE" ]; then
+        rm -f "$LOG_FILE"
+        echo "Cleaned up log file: $LOG_FILE"
+    fi
+
+    echo ""
+    echo "Task $TASK_ID done. Next..."
+    echo ""
+done

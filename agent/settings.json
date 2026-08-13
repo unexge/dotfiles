@@ -1,0 +1,7 @@
+{
+  "theme": "gruvbox-dark-hard",
+  "packages": [
+    "https://github.com/earendil-works/pi-review",
+    "npm:pi-dynamic-workflows"
+  ]
+}
