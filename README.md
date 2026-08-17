@@ -47,6 +47,7 @@ dot help
 - Emacs
 - Git ignore and Delta theme
 - Helix
+- Hunk extensions
 - Nushell
 - Zellij
 - `magit` terminal launcher

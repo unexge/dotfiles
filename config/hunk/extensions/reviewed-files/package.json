@@ -1,0 +1,12 @@
+{
+  "name": "hunk-reviewed-files",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Session-only reviewed-file collapsing for Hunk",
+  "hunk": {
+    "extensions": [
+      "./index.tsx"
+    ],
+    "apiVersion": 6
+  }
+}

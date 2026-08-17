@@ -29,6 +29,7 @@ for target in \
   "$CONFIG_HOME/git/ignore" \
   "$CONFIG_HOME/git/delta.gitconfig" \
   "$CONFIG_HOME/helix/config.toml" \
+  "$CONFIG_HOME/hunk/extensions/reviewed-files/index.tsx" \
   "$NUSHELL_HOME/config.nu" \
   "$NUSHELL_HOME/env.nu" \
   "$ZELLIJ_HOME/config.kdl"; do

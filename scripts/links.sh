@@ -94,6 +94,7 @@ fi
 link_tree "$REPO_ROOT/config/zellij" "$ZELLIJ_HOME"
 link_tree "$REPO_ROOT/config/git" "$CONFIG_HOME/git"
 link_tree "$REPO_ROOT/config/helix" "$CONFIG_HOME/helix"
+link_tree "$REPO_ROOT/config/hunk" "$CONFIG_HOME/hunk"
 link_file "$REPO_ROOT/config/emacs/init.el" "$HOME/.emacs.d/init.el"
 link_tree "$REPO_ROOT/config/bin" "$HOME/.local/bin"
 
