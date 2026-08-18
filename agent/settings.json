@@ -3,5 +3,14 @@
   "packages": [
     "https://github.com/earendil-works/pi-review",
     "npm:pi-dynamic-workflows"
-  ]
+  ],
+  "lastChangelogVersion": "0.84.2",
+  "defaultProvider": "amazon-bedrock-mantle-openai-responses",
+  "defaultModel": "openai.gpt-5.6-sol",
+  "tuiMode": "fullscreen",
+  "hideThinkingBlock": true,
+  "quietStartup": true,
+  "collapseChangelog": true,
+  "showCacheMissNotices": true,
+  "defaultThinkingLevel": "max"
 }
