@@ -58,6 +58,17 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+### 5. Comments Describe Code, Not Changes
+
+**A comment explains the code as it stands, never how it got there.**
+
+- No before/after narration: "`source` rather than `source-env`", "renamed from X", "now returns Y".
+- No mention of what was removed, replaced, or previously broken.
+- State non-obvious constraints and intent in the present tense.
+- Rationale for a change belongs in the commit message, not the source file.
+
+The test: A reader who never saw the old code should not sense anything is missing.
+
 ## Writing Style
 - Don't use `–` or `—` in regular text, use `-` if needed or avoid it completely.
 - Make sure to align `|`, `─` horizontally and vertically in ASCII diagrams.
