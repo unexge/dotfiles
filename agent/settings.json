@@ -2,7 +2,8 @@
   "theme": "gruvbox-dark-hard",
   "packages": [
     "https://github.com/earendil-works/pi-review",
-    "npm:pi-dynamic-workflows"
+    "npm:pi-dynamic-workflows",
+    "npm:@plannotator/pi-extension"
   ],
   "lastChangelogVersion": "0.84.2",
   "defaultProvider": "amazon-bedrock-mantle-openai-responses",
