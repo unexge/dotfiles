@@ -1,0 +1,66 @@
+[
+  {
+    "command": "how",
+    "assertions": [
+      "binds planner, exploration, and explanation to one observation subject",
+      "cites repository evidence and names limitations",
+      "publishes ExplanationProduced only after final recapture"
+    ]
+  },
+  {
+    "command": "design",
+    "assertions": [
+      "synthesizes two bounded candidates into one exact design artifact",
+      "uses a complete current-subject Opus design panel",
+      "returns DesignApproved only from the shared approver"
+    ]
+  },
+  {
+    "command": "review",
+    "assertions": [
+      "reviews one exact Git or Jujutsu observed diff",
+      "uses every configured Opus reviewer",
+      "returns ReviewApproved or normal ChangesRequired without modifying source"
+    ]
+  },
+  {
+    "command": "fix",
+    "assertions": [
+      "captures a checkpointed clean failing trusted regression observation",
+      "proves the same observation passes on the final candidate",
+      "creates one local Git or Jujutsu commit only after Verified authorization"
+    ]
+  },
+  {
+    "command": "build",
+    "assertions": [
+      "uses a behavior-bound Opus-approved design",
+      "persists an implementation checkpoint and same-subject qualification",
+      "leaves every non-Verified candidate uncommitted and never pushes"
+    ]
+  },
+  {
+    "command": "verify",
+    "assertions": [
+      "normalizes the exact claim and resolves one trusted verification contract",
+      "executes only the contract's complete configured observation set",
+      "returns deterministic Verified, NotVerified, or Inconclusive"
+    ]
+  },
+  {
+    "command": "unslop",
+    "assertions": [
+      "binds text or exact backend-native diff input to one observation subject",
+      "grants no mutation tools",
+      "publishes a non-authoritative proposal before UnslopReportProduced"
+    ]
+  },
+  {
+    "command": "controls",
+    "assertions": [
+      "requires registered-command UserOrigin for start resume cancel and recover",
+      "preserves durable control watermarks and manual-inspection precedence",
+      "pins resume and recovery to strict backend repository policy and checkpoints"
+    ]
+  }
+]

@@ -51,7 +51,7 @@ dot help
 - Nushell
 - Zellij
 - `magit` terminal launcher
-- Pi instructions, settings, skills, and themes
+- Pi instructions, settings, skills, themes, and the local `pi-deep-work` package
 - Agent workflow commands under `agent/bin/`
 
 Only files tracked in this repository are linked, and links pointing at files the repository no longer contains are removed on the next `dot link`. Existing target files are moved to timestamped `.bak.*` paths before links are created. Mutable application directories are not linked wholesale, so history, caches, and local state remain outside the repository.
@@ -68,6 +68,7 @@ packages/cargo.txt         Cargo binaries
 packages/npm.txt           Global npm packages
 packages/skills.txt        Third-party Agent Skills repository paths
 agent/settings.json        Pi packages and global Pi settings
+agent/packages/pi-deep-work Local high-rigor Pi workflows and skills
 ```
 
 Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope.

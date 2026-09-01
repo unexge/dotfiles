@@ -24,6 +24,7 @@ for target in \
   "$HOME/.local/bin/agent-loop" \
   "$HOME/.pi/agent/AGENTS.md" \
   "$HOME/.pi/agent/settings.json" \
+  "$HOME/.pi/agent/packages/pi-deep-work/package.json" \
   "$HOME/.claude/CLAUDE.md" \
   "$HOME/.emacs.d/init.el" \
   "$CONFIG_HOME/git/ignore" \

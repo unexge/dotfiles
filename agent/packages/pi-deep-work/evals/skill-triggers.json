@@ -1,0 +1,14 @@
+[
+  { "prompt": "Trace how cancellation moves from the CLI to the worker", "expectedSkill": "understand-code" },
+  { "prompt": "Design ownership and module boundaries before adding shared run state", "expectedSkill": "design-software" },
+  { "prompt": "Review this branch for correctness and regressions before commit", "expectedSkill": "review-software" },
+  { "prompt": "Reproduce this panic, find its root cause, and lock it with a test", "expectedSkill": "root-cause-debugging" },
+  { "prompt": "Implement only the approved repair without widening scope", "expectedSkill": "implement-small-changes" },
+  { "prompt": "Prove the cache cannot be written after shutdown", "expectedSkill": "prove-behavior" },
+  { "prompt": "Audit this diff for narrating comments and speculative guards", "expectedSkill": "unslop-code" },
+  { "prompt": "Rewrite this review report as concise technical prose", "expectedSkill": "technical-writing" },
+  { "prompt": "Review this Rust async cancellation change for ownership and Send assumptions", "expectedSkill": "rust-engineering" },
+  { "prompt": "Check this Zig allocator and errdefer change", "expectedSkill": "zig-engineering" },
+  { "prompt": "Review this Python async context manager and typing boundary", "expectedSkill": "python-engineering" },
+  { "prompt": "Review this TypeScript parser for runtime and type agreement", "expectedSkill": "typescript-engineering" }
+]

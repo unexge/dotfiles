@@ -103,6 +103,7 @@ link_tree "$REPO_ROOT/agent/bin" "$HOME/.local/bin"
 link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
 link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.claude/CLAUDE.md"
 link_file "$REPO_ROOT/agent/settings.json" "$HOME/.pi/agent/settings.json"
+link_tree "$REPO_ROOT/agent/packages" "$HOME/.pi/agent/packages"
 link_tree "$REPO_ROOT/agent/skills" "$HOME/.pi/agent/skills"
 link_tree "$REPO_ROOT/agent/themes" "$HOME/.pi/agent/themes"
 
