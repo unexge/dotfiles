@@ -1,1 +1,1 @@
-# Add macOS-only formulae and casks here.
+cask "ghostty"

@@ -46,6 +46,7 @@ dot help
 
 - Emacs
 - Git ignore and the shared Bat/Delta theme
+- Ghostty (macOS)
 - Helix
 - Hunk extensions
 - Nushell

@@ -1,0 +1,22 @@
+command = nu --login -c "zellij attach -c"
+shell-integration = nushell
+env = PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+
+window-save-state = always
+quit-after-last-window-closed = true
+macos-option-as-alt = true
+
+font-family = Fira Code Medium
+font-size = 16
+font-thicken = true
+window-padding-x = 0
+window-padding-y = 0
+window-width = 80
+window-height = 20
+theme = Ayu
+
+# Clear screen on `cmd+k`
+keybind = cmd+k=text:\x0c
+
+keybind = alt+backspace=text:\x1b\x7f
+keybind = shift+enter=text:\n

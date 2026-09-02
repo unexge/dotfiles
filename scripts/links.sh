@@ -92,6 +92,9 @@ if [[ ! -e "$NUSHELL_HOME/local.nu" ]]; then
   info "Created local Nushell config at $NUSHELL_HOME/local.nu"
 fi
 link_tree "$REPO_ROOT/config/zellij" "$ZELLIJ_HOME"
+if [[ "$(uname -s)" == Darwin ]]; then
+  link_tree "$REPO_ROOT/config/ghostty" "$CONFIG_HOME/ghostty"
+fi
 link_tree "$REPO_ROOT/config/bat" "$CONFIG_HOME/bat"
 link_tree "$REPO_ROOT/config/git" "$CONFIG_HOME/git"
 link_tree "$REPO_ROOT/config/helix" "$CONFIG_HOME/helix"

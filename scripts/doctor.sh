@@ -41,6 +41,11 @@ for target in \
   fi
 done
 
+if [[ "$(uname -s)" == Darwin && ! -L "$CONFIG_HOME/ghostty/config" ]]; then
+  echo "[ERROR] Expected managed link: $CONFIG_HOME/ghostty/config" >&2
+  missing=1
+fi
+
 if ! zellij_check="$(zellij setup --check 2>&1)"; then
   echo "[ERROR] Zellij rejected its managed configuration" >&2
   missing=1
