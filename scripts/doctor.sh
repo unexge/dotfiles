@@ -9,7 +9,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew
 
 missing=0
 for command_name in \
-  bazelisk brew btop cargo cargo-binstall crit delta dex difft dust emacs htop \
+  bat bazelisk brew btop cargo cargo-binstall crit delta dex difft dust emacs htop \
   hunkdiff hx jj jq node npm nu pi rg ruby rust-code-analysis-cli rustup uv \
   zellij zig; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -27,6 +27,7 @@ for target in \
   "$HOME/.pi/agent/packages/pi-deep-work/package.json" \
   "$HOME/.claude/CLAUDE.md" \
   "$HOME/.emacs.d/init.el" \
+  "$CONFIG_HOME/bat/themes/ayu-dark.tmTheme" \
   "$CONFIG_HOME/git/ignore" \
   "$CONFIG_HOME/git/delta.gitconfig" \
   "$CONFIG_HOME/helix/config.toml" \
@@ -39,6 +40,24 @@ for target in \
     missing=1
   fi
 done
+
+if ! zellij_check="$(zellij setup --check 2>&1)"; then
+  echo "[ERROR] Zellij rejected its managed configuration" >&2
+  missing=1
+elif [[ "$zellij_check" != *"[LOOKING FOR CONFIG FILE FROM]: \"$ZELLIJ_HOME/config.kdl\""* ]]; then
+  echo "[ERROR] Zellij is not reading $ZELLIJ_HOME/config.kdl" >&2
+  missing=1
+fi
+
+if ! bat --list-themes | grep -Fxq 'ayu-dark'; then
+  echo "[ERROR] Bat cannot find the ayu-dark syntax theme" >&2
+  missing=1
+fi
+
+if ! delta --list-syntax-themes | grep -Eq '(^|[[:space:]])ayu-dark$'; then
+  echo "[ERROR] Delta cannot find the ayu-dark syntax theme" >&2
+  missing=1
+fi
 
 if [[ ":$ORIGINAL_PATH:" != *":$HOME/.local/bin:"* ]]; then
   echo "[WARN] Add $HOME/.local/bin to your shell PATH"

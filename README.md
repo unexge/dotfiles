@@ -26,7 +26,7 @@ dot sync
 1. Pull the current branch with `git pull --ff-only` when it has an upstream.
 2. Create or repair managed configuration links.
 3. Install Homebrew when missing.
-4. Upgrade packages declared in the Brewfiles.
+4. Upgrade packages declared in the Brewfiles and rebuild Bat's theme cache.
 5. Update Rust and install declared Cargo binaries.
 6. Install or update declared global npm packages and Agent Skills.
 7. Update Pi packages declared in `agent/settings.json`.
@@ -45,7 +45,7 @@ dot help
 ## Managed configuration
 
 - Emacs
-- Git ignore and Delta theme
+- Git ignore and the shared Bat/Delta theme
 - Helix
 - Hunk extensions
 - Nushell

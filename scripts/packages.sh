@@ -62,6 +62,11 @@ install_brew_packages() {
   brew bundle --file="$platform_file"
 }
 
+build_bat_cache() {
+  info "Building Bat theme cache"
+  bat cache --build
+}
+
 install_rust_packages() {
   local package
 
@@ -132,6 +137,7 @@ update_pi_packages() {
 
 ensure_homebrew
 install_brew_packages
+build_bat_cache
 install_rust_packages
 install_npm_packages
 install_skills

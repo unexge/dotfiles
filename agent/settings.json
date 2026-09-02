@@ -1,5 +1,5 @@
 {
-  "theme": "gruvbox-dark-hard",
+  "theme": "ayu-dark",
   "packages": [
     "./packages/pi-deep-work",
     "https://github.com/earendil-works/pi-review",

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Terminal Emacs needs >=256 colors for the gruvbox theme to apply at all;
+# Terminal Emacs needs >=256 colors for Ayu Dark to apply at all;
 # with TERM=xterm (8 colors) it falls back to light-theme defaults.
 case "$(tput colors 2>/dev/null || echo 8)" in
   8|16) export TERM=xterm-256color ;;

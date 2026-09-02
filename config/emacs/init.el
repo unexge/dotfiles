@@ -7,7 +7,7 @@
 (package-initialize)
 
 ;; Auto-install packages, refreshing the archive cache when anything is missing
-(let ((pkgs '(magit magit-delta difftastic gruvbox-theme)))
+(let ((pkgs '(magit magit-delta difftastic ayu-theme)))
   (when (seq-some (lambda (p) (not (package-installed-p p))) pkgs)
     (package-refresh-contents))
   (dolist (pkg pkgs)
@@ -18,15 +18,15 @@
 ;; Never let a degraded TERM make Emacs assume a light background
 ;; (that turns magit section highlights into unreadable grey95 bars).
 (setq frame-background-mode 'dark)
-(load-theme 'gruvbox-dark-hard t)
+(load-theme 'ayu-dark t)
 
 ;; --- Magit ---
 (setq magit-display-buffer-function 'magit-display-buffer-fullframe-status-v1)
 (require 'magit-delta)
 ;; magit-delta passes --syntax-theme on the command line, overriding the
-;; syntax-theme from .config/git/delta.gitconfig.  Its default ("Monokai
-;; Extended") clashes with gruvbox-dark-hard, so pin it to gruvbox-dark.
-(setq magit-delta-default-dark-theme "gruvbox-dark")
+;; syntax-theme from .config/git/delta.gitconfig. Its default clashes with
+;; Ayu Dark, so pin it to the matching Bat theme.
+(setq magit-delta-default-dark-theme "ayu-dark")
 (add-hook 'magit-mode-hook (lambda () (magit-delta-mode +1)))
 
 ;; --- Difftastic (structural diffs as default in Magit) ---

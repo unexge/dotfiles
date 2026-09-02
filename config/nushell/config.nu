@@ -1,7 +1,7 @@
 $env.config.show_banner = false
 $env.PROMPT_COMMAND_RIGHT = ""
 
-use ./themes/gruvbox-dark-hard.nu
+source ./themes/ayu.nu
 
 # local.nu carries aliases and commands as well as environment variables, so it
 # needs `source`. `source` is a parse-time keyword, so a missing local.nu is a

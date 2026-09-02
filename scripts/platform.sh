@@ -11,7 +11,7 @@ case "$(uname -s)" in
     else
       NUSHELL_HOME="$HOME/Library/Application Support/nushell"
     fi
-    ZELLIJ_HOME="$HOME/Library/Application Support/org.Zellij-Contributors.Zellij"
+    ZELLIJ_HOME="$HOME/.config/zellij"
     ;;
   Linux)
     NUSHELL_HOME="$CONFIG_HOME/nushell"
