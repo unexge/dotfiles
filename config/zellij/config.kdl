@@ -216,8 +216,31 @@ plugins {
     tab-bar location="zellij:tab-bar"
     status-bar location="zellij:status-bar"
     strider location="zellij:strider"
-    compact-bar location="zellij:tab-bar" {
-        hide_swap_layout_indication true
+    compact-bar location="https://github.com/dj95/zjstatus/releases/download/v0.25.0/zjstatus.wasm" {
+        format_left "#[fg=#cccac2,bg=#131721,bold] Zellij {tabs}"
+        format_right "{mode}"
+        format_space "#[bg=#131721]"
+
+        mode_locked "#[fg=#d2a6ff,bg=#131721,bold] LOCKED "
+        mode_resize "#[fg=#ff8f40,bg=#131721,bold] RESIZE "
+        mode_pane "#[fg=#ff8f40,bg=#131721,bold] PANE "
+        mode_tab "#[fg=#ff8f40,bg=#131721,bold] TAB "
+        mode_scroll "#[fg=#ff8f40,bg=#131721,bold] SCROLL "
+        mode_enter_search "#[fg=#ff8f40,bg=#131721,bold] ENTER SEARCH "
+        mode_search "#[fg=#ff8f40,bg=#131721,bold] SEARCH "
+        mode_rename_tab "#[fg=#ff8f40,bg=#131721,bold] RENAME TAB "
+        mode_rename_pane "#[fg=#ff8f40,bg=#131721,bold] RENAME PANE "
+        mode_session "#[fg=#ff8f40,bg=#131721,bold] SESSION "
+        mode_move "#[fg=#ff8f40,bg=#131721,bold] MOVE "
+        mode_prompt "#[fg=#ff8f40,bg=#131721,bold] PROMPT "
+        mode_tmux "#[fg=#ff8f40,bg=#131721,bold] TMUX "
+
+        tab_normal "#[fg=#cccac2,bg=#131721,bold] {name}{fullscreen_indicator}{sync_indicator}{bell_indicator} "
+        tab_active "#[fg=#aad94c,bg=#131721,bold] {name}{fullscreen_indicator}{sync_indicator}{bell_indicator} "
+        tab_rename "#[fg=#aad94c,bg=#131721,bold] {name} "
+        tab_fullscreen_indicator " (FULLSCREEN)"
+        tab_sync_indicator " (SYNC)"
+        tab_bell_indicator " [!]"
     }
     session-manager location="zellij:session-manager"
     welcome-screen location="zellij:session-manager" {

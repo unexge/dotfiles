@@ -50,12 +50,14 @@ dot help
 - Helix
 - Hunk extensions
 - Nushell
-- Zellij
+- Zellij with the pinned zjstatus v0.25.0 bottom-bar plugin
 - `magit` terminal launcher
 - Pi instructions, settings, skills, themes, and the local `pi-deep-work` package
 - Agent workflow commands under `agent/bin/`
 
 Only files tracked in this repository are linked, and links pointing at files the repository no longer contains are removed on the next `dot link`. Existing target files are moved to timestamped `.bak.*` paths before links are created. Mutable application directories are not linked wholesale, so history, caches, and local state remain outside the repository.
+
+Zellij downloads the pinned zjstatus WebAssembly release from GitHub on first use. Zellij then asks once for `ReadApplicationState`, `ChangeApplicationState`, and `RunCommands`; zjstatus requests the last permission unconditionally, although this configuration defines no command widgets.
 
 ## Dependencies
 
