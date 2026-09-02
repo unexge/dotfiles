@@ -165,7 +165,7 @@ export function resolvePolicy(machineInput: MachinePolicy, projectInput?: Projec
 	validateTimeouts(machine, [...quickGates, ...fullGates, ...observations, ...normalizers]);
 
 	const digestInput = {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		models: machine.models,
 		concurrency: machine.concurrency,
 		maxRepairRounds: machine.maxRepairRounds,

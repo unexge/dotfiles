@@ -74,7 +74,7 @@ export async function runReviewWorkflow(input: ReviewWorkflowInput): Promise<Rev
 			task: [
 				"Review this exact observed code diff against the original operator intent.",
 				`Operator intent: ${input.origin.goal}`,
-				"Untrusted GPT framing:",
+				"Untrusted orchestrator framing:",
 				canonicalJson(frame.report.value),
 			].join("\n\n"),
 			recaptureSubjectDigest: async () => {

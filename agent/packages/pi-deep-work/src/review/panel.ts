@@ -82,7 +82,7 @@ interface ValidatedReview {
 
 export class ReviewPanel {
 	private readonly reviewers: readonly { id: string; model: string; index: number }[];
-	private readonly gptModel: string;
+	private readonly orchestratorModel: string;
 
 	constructor(
 		private readonly gateway: AgentGateway,
@@ -90,9 +90,9 @@ export class ReviewPanel {
 		private readonly ref: RunRef,
 		policy: ResolvedPolicy,
 	) {
-		this.gptModel = `${policy.machine.models.gpt.provider}/${policy.machine.models.gpt.id}`;
+		this.orchestratorModel = `${policy.machine.models.orchestrator.provider}/${policy.machine.models.orchestrator.id}`;
 		this.reviewers = Object.freeze(
-			policy.machine.models.opusReviewers.map((reviewer, index) => ({
+			policy.machine.models.reviewers.map((reviewer, index) => ({
 				id: `${reviewer.provider}/${reviewer.id}`,
 				model: `${reviewer.provider}/${reviewer.id}`,
 				index,
@@ -197,7 +197,7 @@ export class ReviewPanel {
 			const settlement = await this.gateway.runSettled({
 				kind: "adjudicate",
 				label: "review adjudication",
-				task: `Explain these validated Opus findings without changing approval or severity:\n${canonicalJson(findings)}`,
+				task: `Explain these validated reviewer findings without changing approval or severity:\n${canonicalJson(findings)}`,
 			});
 			if (settlement.ok && this.validAdjudication(settlement.result, findings)) {
 				adjudication = settlement.result.report.value;
@@ -408,7 +408,7 @@ export class ReviewPanel {
 
 	private validAdjudication(result: AgentResult<"adjudicate">, findings: readonly CanonicalFinding[]): boolean {
 		try {
-			if (result.kind !== "adjudicate" || result.role !== "adjudicator" || result.model !== this.gptModel) return false;
+			if (result.kind !== "adjudicate" || result.role !== "adjudicator" || result.model !== this.orchestratorModel) return false;
 			const report = decodeAgentReport("adjudicate", result.report.value);
 			if (report.status !== "ok") return false;
 			const expected = [...findings.map((finding) => finding.id)].sort();

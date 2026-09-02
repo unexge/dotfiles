@@ -1,6 +1,6 @@
 # pi-deep-work
 
-`pi-deep-work` runs explicit, high-rigor engineering workflows in the current Git or Jujutsu repository. GPT 5.6 Sol performs non-review work, and a configured Opus 4.8/5.0 panel reviews designs and code. A write workflow creates a local commit only when trusted evidence verifies the exact reviewed candidate.
+`pi-deep-work` runs explicit, high-rigor engineering workflows in the current Git or Jujutsu repository. A configured orchestrator directs each workflow, an independently configured work agent handles exploration and repository changes, and a complete review panel checks designs and code. A write workflow creates a local commit only when trusted evidence verifies the exact reviewed candidate.
 
 Inspired by [pstack](https://github.com/cursor/plugins/tree/main/pstack), it trades pstack's broad, model-directed parallel playbooks for a narrow, mechanically enforced local workflow that commits only verified candidates.
 
@@ -21,7 +21,13 @@ Configure models once from inside Pi:
 /deep config
 ```
 
-Select one authenticated GPT 5.6 Sol model and at least one authenticated Opus 4.8 or 5.0 reviewer. Every selected model must support `max` thinking. Configuration is stored at `~/.pi/agent/pi-deep-work/config.json`.
+Select authenticated models and supported thinking levels for three roles:
+
+- **Orchestrator**: planning, design, synthesis, verification proposals, and adjudication. GPT 5.6 Sol at `max` or `xhigh` is recommended.
+- **Review agents**: every selected agent reviews each design and code candidate. Opus 5.0 or 4.8 at `max` or `xhigh` is recommended.
+- **Work agent**: exploration, implementation, and repair. Reusing the orchestrator model at `high` is the default; choose a cheaper model when desired.
+
+Recommendations affect picker order only. Any authenticated model may fill any role, and `/deep config` offers only thinking levels supported by that model. Configuration is stored at `~/.pi/agent/pi-deep-work/config.json`. Existing schema-version 1 configuration remains readable; running `/deep config` writes the role-based schema.
 
 Try a read-only workflow:
 
@@ -38,9 +44,9 @@ Only a command you enter as `/deep ...` can start or control a run. There is no 
 | Command | Result |
 |---|---|
 | `/deep help` | Show command syntax. |
-| `/deep config` | Select the writer and review panel. |
+| `/deep config` | Select the orchestrator, review panel, work agent, and thinking levels. |
 | `/deep how <question>` | Explain the current repository from cited source evidence. |
-| `/deep design <goal>` | Produce an Opus-reviewed design without modifying files. |
+| `/deep design <goal>` | Produce a review-panel-approved design without modifying files. |
 | `/deep review [--base <ref-or-revset>] [intent]` | Review the current backend-native diff without modifying files. |
 | `/deep fix <bug report>` | Reproduce the bug, prove red-to-green behavior, and create a verified local commit. |
 | `/deep build <goal>` | Design, implement, review, verify, and create a local commit. |
@@ -119,9 +125,9 @@ Policy is strict JSON. Unknown fields, missing required fields, duplicate IDs, u
 - Git must be clean, conflict-free, on the configured mainline branch, with matching HEAD, index, and working tree.
 - Jujutsu must have an empty, mutable, conflict-free, single-parent `@` descended from the configured exact mainline bookmark.
 
-The workflow then requires an approved design, trusted quick and full gates, behavior evidence, complete Opus code review, a deterministic `Verified` verdict, and an unchanged candidate hash. It creates one local commit and never pushes. If review or verification does not pass, the candidate remains uncommitted for inspection.
+The workflow then requires an approved design, trusted quick and full gates, behavior evidence, complete code review, a deterministic `Verified` verdict, and an unchanged candidate hash. It creates one local commit and never pushes. If review or verification does not pass, the candidate remains uncommitted for inspection.
 
-Only implementation and repair agents receive repository-scoped edit tools. Delegated agents never receive bash. One lease serializes runs per repository, while different repositories may run concurrently.
+Only implementation and repair jobs receive repository-scoped edit tools. Delegated agents never receive bash. One lease serializes runs per repository, while different repositories may run concurrently.
 
 ## State and recovery
 

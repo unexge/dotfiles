@@ -26,7 +26,7 @@ Only the registered handler mints `UserOrigin`. No LLM-callable tool, prompt ali
 
 Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted repositories may supply strict project policy at `.pi/pi-deep-work.json`; invalid policy is rejected.
 
-GPT 5.6 Sol at max owns non-review model work. Every configured Opus 4.8/5.0 reviewer must complete design/code review. Missing, failed, malformed, contradictory, or foreign reviewer output blocks. GPT adjudication is explanatory and cannot clear Opus severity.
+The configured orchestrator owns planning, design, synthesis, verification proposals, and adjudication. The configured work agent owns exploration, implementation, and repair. Every configured review agent must complete design/code review. Each role binds one exact authenticated model and a thinking level supported by that model. Missing, failed, malformed, contradictory, or foreign reviewer output blocks. Orchestrator adjudication is explanatory and cannot clear reviewer severity.
 
 Models never choose argv, observation IDs, claim keys, mappings, subjects, reviewers, or commit authorization. They may return only package-schema data such as selectors.
 
@@ -81,7 +81,7 @@ Both fix/build use:
 
 ```text
 normalize exactly twice -> seal candidate -> quick gates -> full gates
--> behavior observations -> complete Opus code panel -> bounded repair
+-> behavior observations -> complete code review panel -> bounded repair
 -> deterministic Verified record -> private authorization -> local transaction
 ```
 

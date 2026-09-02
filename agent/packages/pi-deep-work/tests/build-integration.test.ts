@@ -50,10 +50,10 @@ function policy(behaviorPass = true) {
 	const behaviorCommand = [process.execPath, "-e", `process.exit(${behaviorPass ? 0 : 1})`];
 	return resolvePolicy(
 		decodeMachinePolicy({
-			schemaVersion: 1,
+			schemaVersion: 2,
 			models: {
-				gpt: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
-				opusReviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
+				orchestrator: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
+				reviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
 			},
 			concurrency: 1,
 			maxRepairRounds: 0,

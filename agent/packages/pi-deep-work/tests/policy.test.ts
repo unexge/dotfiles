@@ -19,10 +19,11 @@ const observation = (id: string, claimKeys = ["cache.safe"]) => ({
 
 function machine() {
 	return decodeMachinePolicy({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		models: {
-			gpt: { provider: "bedrock", id: "gpt-5.6-sol", thinkingLevel: "max" },
-			opusReviewers: [{ provider: "bedrock", id: "claude-opus-4-8", thinkingLevel: "max" }],
+			orchestrator: { provider: "bedrock", id: "gpt-5.6-sol", thinkingLevel: "max" },
+			worker: { provider: "bedrock", id: "gpt-5.6-sol", thinkingLevel: "high" },
+			reviewers: [{ provider: "bedrock", id: "claude-opus-4-8", thinkingLevel: "xhigh" }],
 		},
 		concurrency: 4,
 		maxRepairRounds: 2,
@@ -94,7 +95,8 @@ describe("canonical policy", () => {
 		const resolved = resolvePolicy(machine(), project());
 		expect(resolved.quickGates.map((entry) => entry.id)).toEqual(["machine-quick", "project-quick"]);
 		expect(resolved.fullGates.map((entry) => entry.id)).toEqual(["machine-full"]);
-		expect(resolved.machine.models.gpt.thinkingLevel).toBe("max");
+		expect(resolved.machine.models.orchestrator.thinkingLevel).toBe("max");
+		expect(resolved.machine.models.worker?.thinkingLevel).toBe("high");
 		expect(resolved.mainline).toBe("main");
 		expect(resolved.digest).toMatch(/^[0-9a-f]{64}$/);
 		expect(resolved.normalizedClaims.get("Cache is safe after shutdown")?.id).toBe("cache-contract");
@@ -108,11 +110,11 @@ describe("canonical policy", () => {
 		expect(() =>
 			(resolved.selectorPatterns as unknown as Map<string, unknown>).delete("rust-test-filter"),
 		).toThrow(TypeError);
-		const originalProvider = resolved.machine.models.gpt.provider;
+		const originalProvider = resolved.machine.models.orchestrator.provider;
 		const source = machine();
 		const cloned = resolvePolicy(source);
-		source.models.gpt.provider = "mutated-after-resolution";
-		expect(cloned.machine.models.gpt.provider).toBe(originalProvider);
+		source.models.orchestrator.provider = "mutated-after-resolution";
+		expect(cloned.machine.models.orchestrator.provider).toBe(originalProvider);
 	});
 });
 
@@ -121,18 +123,27 @@ describe("strict policy validation", () => {
 		expect(() =>
 			decodeProjectPolicy({
 				...project(),
-				models: { gpt: { provider: "other", id: "other", thinkingLevel: "max" } },
+				models: { orchestrator: { provider: "other", id: "other", thinkingLevel: "max" } },
 			}),
 		).toThrow(PolicyDecodeError);
 	});
 
-	it("rejects non-max GPT policy and unknown keys", () => {
+	it("accepts configurable thinking levels and rejects invalid levels or unknown keys", () => {
 		expect(() =>
 			decodeMachinePolicy({
 				...machine(),
 				models: {
 					...machine().models,
-					gpt: { provider: "bedrock", id: "gpt-5.6-sol", thinkingLevel: "xhigh" },
+					orchestrator: { provider: "bedrock", id: "other-model", thinkingLevel: "xhigh" },
+				},
+			}),
+		).not.toThrow();
+		expect(() =>
+			decodeMachinePolicy({
+				...machine(),
+				models: {
+					...machine().models,
+					orchestrator: { provider: "bedrock", id: "other-model", thinkingLevel: "extreme" },
 				},
 			}),
 		).toThrow(PolicyDecodeError);

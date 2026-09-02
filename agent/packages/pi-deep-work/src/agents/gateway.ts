@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	DefaultResourceLoader,
 	defineTool,
@@ -51,21 +50,21 @@ export interface WorkspaceAgentTools {
 
 interface JobPolicy {
 	role: AgentRole;
-	model: "gpt" | "opus";
+	model: "orchestrator" | "worker" | "reviewer";
 	tools: "none" | "read" | "write";
 }
 
 export const agentJobPolicy: Readonly<Record<AgentJobKind, JobPolicy>> = Object.freeze({
-	plan: { role: "planner", model: "gpt", tools: "read" },
-	explore: { role: "explorer", model: "gpt", tools: "read" },
-	design: { role: "designer", model: "gpt", tools: "read" },
-	implement: { role: "implementer", model: "gpt", tools: "write" },
-	repair: { role: "implementer", model: "gpt", tools: "write" },
-	verify: { role: "verifier", model: "gpt", tools: "read" },
-	adjudicate: { role: "adjudicator", model: "gpt", tools: "read" },
-	edit: { role: "editor", model: "gpt", tools: "none" },
-	"review-design": { role: "design-reviewer", model: "opus", tools: "read" },
-	"review-code": { role: "code-reviewer", model: "opus", tools: "read" },
+	plan: { role: "planner", model: "orchestrator", tools: "read" },
+	explore: { role: "explorer", model: "worker", tools: "read" },
+	design: { role: "designer", model: "orchestrator", tools: "read" },
+	implement: { role: "implementer", model: "worker", tools: "write" },
+	repair: { role: "implementer", model: "worker", tools: "write" },
+	verify: { role: "verifier", model: "orchestrator", tools: "read" },
+	adjudicate: { role: "adjudicator", model: "orchestrator", tools: "read" },
+	edit: { role: "editor", model: "orchestrator", tools: "none" },
+	"review-design": { role: "design-reviewer", model: "reviewer", tools: "read" },
+	"review-code": { role: "code-reviewer", model: "reviewer", tools: "read" },
 });
 
 interface BaseAgentJob<K extends AgentJobKind> {
@@ -76,16 +75,16 @@ interface BaseAgentJob<K extends AgentJobKind> {
 	onProgress?: (event: AgentProgress) => void;
 }
 
-type GptJobKind = Exclude<AgentJobKind, "review-design" | "review-code">;
+type NonReviewJobKind = Exclude<AgentJobKind, "review-design" | "review-code">;
 type ReviewJobKind = Extract<AgentJobKind, "review-design" | "review-code">;
 type MutationJobKind = Extract<AgentJobKind, "implement" | "repair">;
-type GptAgentJob = {
-	[K in GptJobKind]: BaseAgentJob<K> & { reviewerIndex?: never };
-}[GptJobKind];
+type NonReviewAgentJob = {
+	[K in NonReviewJobKind]: BaseAgentJob<K> & { reviewerIndex?: never };
+}[NonReviewJobKind];
 type ReviewAgentJob = {
 	[K in ReviewJobKind]: BaseAgentJob<K> & { reviewerIndex: number };
 }[ReviewJobKind];
-export type AgentJob = GptAgentJob | ReviewAgentJob;
+export type AgentJob = NonReviewAgentJob | ReviewAgentJob;
 type MutationAgentJob = Extract<AgentJob, { kind: MutationJobKind }>;
 
 export interface AgentProgress {
@@ -306,16 +305,17 @@ export class AgentGateway {
 		}
 	}
 
-	private modelFor(job: AgentJob, policy: JobPolicy): Model<Api> {
-		if (policy.model === "gpt") return this.models.gpt;
+	private modelFor(job: AgentJob, policy: JobPolicy): ResolvedModels["orchestrator"] {
+		if (policy.model === "orchestrator") return this.models.orchestrator;
+		if (policy.model === "worker") return this.models.worker;
 		if (job.kind !== "review-design" && job.kind !== "review-code") {
-			throw new AgentGatewayError(`Non-review job cannot select Opus: ${job.kind}`);
+			throw new AgentGatewayError(`Non-review job cannot select a reviewer: ${job.kind}`);
 		}
 		if (!Number.isInteger(job.reviewerIndex) || job.reviewerIndex < 0) {
-			throw new AgentGatewayError(`Invalid Opus reviewer index: ${job.reviewerIndex}`);
+			throw new AgentGatewayError(`Invalid reviewer index: ${job.reviewerIndex}`);
 		}
-		const model = this.models.opusReviewers[job.reviewerIndex];
-		if (!model) throw new AgentGatewayError(`Unknown Opus reviewer index: ${job.reviewerIndex}`);
+		const model = this.models.reviewers[job.reviewerIndex];
+		if (!model) throw new AgentGatewayError(`Unknown reviewer index: ${job.reviewerIndex}`);
 		return model;
 	}
 
@@ -329,7 +329,8 @@ export class AgentGateway {
 			throw new AgentGatewayError(`Job ${job.kind} cannot select a language prompt`);
 		}
 		const policy = agentJobPolicy[job.kind];
-		const model = this.modelFor(job, policy);
+		const selectedModel = this.modelFor(job, policy);
+		const model = selectedModel.model;
 		const schema = agentReportSchemas[job.kind] as TSchema;
 		let captured: unknown;
 		const outputTool = defineTool({
@@ -375,7 +376,7 @@ export class AgentGateway {
 				agentDir: this.agentDir,
 				modelRuntime,
 				model,
-				thinkingLevel: "max",
+				thinkingLevel: selectedModel.thinkingLevel,
 				noTools: "all",
 				tools: customTools.map((tool) => tool.name),
 				customTools,

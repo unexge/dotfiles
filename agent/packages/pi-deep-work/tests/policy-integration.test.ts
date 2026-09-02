@@ -5,25 +5,35 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configurePolicy } from "../src/policy/config-command.ts";
-import { isGpt56Sol, isOpus48Or50, resolveModels } from "../src/policy/models.ts";
+import {
+	isRecommendedOrchestrator,
+	isRecommendedReviewer,
+	resolveModels,
+} from "../src/policy/models.ts";
 import { loadResolvedPolicy } from "../src/policy/resolver.ts";
 import { decodeMachinePolicy } from "../src/policy/schemas.ts";
 
 const temporary: string[] = [];
 
-const gpt = {
+const orchestrator = {
 	provider: "bedrock",
 	id: "gpt-5.6-sol",
 	name: "GPT 5.6 Sol",
 	reasoning: true,
-	thinkingLevelMap: { max: "max" },
+	thinkingLevelMap: { xhigh: "xhigh", max: "max" },
 } as unknown as Model<Api>;
-const opus = {
+const reviewer = {
 	provider: "bedrock",
 	id: "claude-opus-4-8",
 	name: "Claude Opus 4.8",
 	reasoning: true,
-	thinkingLevelMap: { max: "max" },
+	thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+} as unknown as Model<Api>;
+const worker = {
+	provider: "bedrock",
+	id: "fast-worker",
+	name: "Fast Worker",
+	reasoning: true,
 } as unknown as Model<Api>;
 
 function registry(
@@ -40,10 +50,11 @@ function registry(
 
 function machineValue() {
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		models: {
-			gpt: { provider: gpt.provider, id: gpt.id, thinkingLevel: "max" },
-			opusReviewers: [{ provider: opus.provider, id: opus.id, thinkingLevel: "max" }],
+			orchestrator: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "max" },
+			worker: { provider: worker.provider, id: worker.id, thinkingLevel: "high" },
+			reviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "xhigh" }],
 		},
 		concurrency: 4,
 		maxRepairRounds: 2,
@@ -58,6 +69,37 @@ function machineValue() {
 		verificationContracts: [],
 		selectors: [],
 	};
+}
+
+function configUi() {
+	const select = vi.fn(async (title: string, choices: string[]) => {
+		if (title === "Orchestrator thinking (max/xhigh recommended)") {
+			expect(choices.slice(0, 2)).toEqual(["max", "xhigh"]);
+			return "max";
+		}
+		if (title.startsWith("Review agent ") && title.includes(" thinking ")) {
+			expect(choices.slice(0, 2).sort()).toEqual(["max", "xhigh"]);
+			return "xhigh";
+		}
+		if (title === "Work agent thinking (high recommended)") {
+			expect(choices[0]).toBe("high");
+			return "high";
+		}
+		if (title.startsWith("Orchestrator agent")) {
+			expect(choices[0]).toContain(orchestrator.id);
+			return choices[0];
+		}
+		if (title.startsWith("Review agent") || title === "Add another review agent") {
+			expect(choices[0]).toContain(reviewer.id);
+			return choices[0];
+		}
+		if (title.startsWith("Work agent")) {
+			expect(choices[0]).toContain(orchestrator.id);
+			return choices[0];
+		}
+		return undefined;
+	});
+	return { select, confirm: vi.fn().mockResolvedValue(false) };
 }
 
 afterEach(async () => {
@@ -131,85 +173,146 @@ describe("policy file loading", () => {
 	});
 });
 
-describe("exact model binding", () => {
-	it("resolves authenticated GPT and every Opus reviewer without fallback", () => {
-		const resolved = resolveModels(registry([gpt, opus]), decodeMachinePolicy(machineValue()));
-		expect(resolved.gpt).toBe(gpt);
-		expect(resolved.opusReviewers).toEqual([opus]);
+describe("model binding", () => {
+	it("resolves each role with its configured thinking level", () => {
+		const resolved = resolveModels(registry([orchestrator, worker, reviewer]), decodeMachinePolicy(machineValue()));
+		expect(resolved.orchestrator).toEqual({ model: orchestrator, thinkingLevel: "max" });
+		expect(resolved.worker).toEqual({ model: worker, thinkingLevel: "high" });
+		expect(resolved.reviewers).toEqual([{ model: reviewer, thinkingLevel: "xhigh" }]);
 	});
 
-	it("rejects unavailable, unauthenticated, duplicate, or wrong-family models", () => {
-		expect(() => resolveModels(registry([opus]), decodeMachinePolicy(machineValue()))).toThrow("not found");
-		expect(() => resolveModels(registry([gpt, opus], false), decodeMachinePolicy(machineValue()))).toThrow(
-			"not authenticated",
-		);
+	it("rejects unavailable, unauthenticated, duplicate, or unsupported selections", () => {
+		expect(() => resolveModels(registry([worker, reviewer]), decodeMachinePolicy(machineValue()))).toThrow("not found");
+		expect(() =>
+			resolveModels(registry([orchestrator, worker, reviewer], false), decodeMachinePolicy(machineValue())),
+		).toThrow("not authenticated");
 		const duplicate = decodeMachinePolicy(machineValue());
-		duplicate.models.opusReviewers.push(duplicate.models.opusReviewers[0]);
-		expect(() => resolveModels(registry([gpt, opus]), duplicate)).toThrow("Duplicate Opus reviewer");
-		const wrong = { ...opus, id: "claude-opus-5-1", name: "Claude Opus 5.1" } as Model<Api>;
-		const wrongPolicy = decodeMachinePolicy({
+		duplicate.models.reviewers.push(duplicate.models.reviewers[0]);
+		expect(() => resolveModels(registry([orchestrator, worker, reviewer]), duplicate)).toThrow("Duplicate reviewer");
+		const unsupported = decodeMachinePolicy({
 			...machineValue(),
 			models: {
 				...machineValue().models,
-				opusReviewers: [{ provider: wrong.provider, id: wrong.id, thinkingLevel: "max" }],
+				worker: { provider: worker.provider, id: worker.id, thinkingLevel: "max" },
 			},
 		});
-		expect(() => resolveModels(registry([gpt, wrong]), wrongPolicy)).toThrow("not Opus 4.8/5.0");
-		const noMax = { ...gpt, thinkingLevelMap: { max: null } } as unknown as Model<Api>;
-		expect(() => resolveModels(registry([noMax, opus]), decodeMachinePolicy(machineValue()))).toThrow(
+		expect(() => resolveModels(registry([orchestrator, worker, reviewer]), unsupported)).toThrow(
 			"does not support max thinking",
 		);
-		expect(isGpt56Sol({ id: "gpt-5.6-sol-preview" })).toBe(false);
-		expect(isGpt56Sol({ id: "gpt-5.6-sol-20250805" })).toBe(false);
-		expect(isOpus48Or50({ id: "global.anthropic.claude-opus-4-8" })).toBe(true);
-		expect(isOpus48Or50({ id: "claude-opus-5" })).toBe(true);
-		expect(isOpus48Or50({ id: "claude-opus-4-8-preview" })).toBe(false);
-		expect(isOpus48Or50({ id: "claude-opus-4-8-20250805" })).toBe(false);
+	});
+
+	it("treats model families as recommendations rather than requirements", () => {
+		const generic = {
+			provider: "local",
+			id: "qwen-coder",
+			name: "Qwen Coder",
+			reasoning: true,
+		} as unknown as Model<Api>;
+		const policy = decodeMachinePolicy({
+			...machineValue(),
+			models: {
+				orchestrator: { provider: generic.provider, id: generic.id, thinkingLevel: "high" },
+				worker: { provider: generic.provider, id: generic.id, thinkingLevel: "low" },
+				reviewers: [{ provider: generic.provider, id: generic.id, thinkingLevel: "off" }],
+			},
+		});
+		expect(() => resolveModels(registry([generic]), policy)).not.toThrow();
+		expect(isRecommendedOrchestrator(orchestrator)).toBe(true);
+		expect(isRecommendedReviewer(reviewer)).toBe(true);
+		expect(isRecommendedOrchestrator(generic)).toBe(false);
+		expect(isRecommendedReviewer({ id: "claude-opus-5-1" })).toBe(false);
+	});
+
+	it("reads legacy role names without changing their selections", () => {
+		const current = machineValue();
+		const legacy = decodeMachinePolicy({
+			...current,
+			schemaVersion: 1,
+			models: {
+				gpt: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "max" },
+				opusReviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "max" }],
+			},
+		});
+		expect(legacy).toMatchObject({
+			schemaVersion: 2,
+			models: {
+				orchestrator: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "max" },
+				reviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "max" }],
+			},
+		});
+		expect(legacy.models.worker).toBeUndefined();
 	});
 });
 
 describe("config writer", () => {
-	it("writes a new strict policy and preserves valid settings", async () => {
+	it("writes role-based choices and preserves valid settings", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-deep-config-"));
 		temporary.push(root);
-		await mkdir(root, { recursive: true });
 		const path = join(root, "config.json");
-		const select = vi.fn().mockResolvedValueOnce(`${gpt.provider}/${gpt.id} (${gpt.name})`).mockResolvedValueOnce(
-			`${opus.provider}/${opus.id} (${opus.name})`,
-		);
+		const ui = configUi();
 		const ctx = {
 			hasUI: true,
 			scopedModels: [],
-			modelRegistry: registry([gpt, opus]),
-			ui: { select },
+			modelRegistry: registry([worker, reviewer, orchestrator]),
+			ui,
 		} as unknown as ExtensionCommandContext;
 		expect(await configurePolicy(ctx, path)).toBe(true);
 		const first = decodeMachinePolicy(JSON.parse(await readFile(path, "utf8")));
-		expect(first.models.gpt.thinkingLevel).toBe("max");
+		expect(first.schemaVersion).toBe(2);
+		expect(first.models).toEqual({
+			orchestrator: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "max" },
+			worker: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "high" },
+			reviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "xhigh" }],
+		});
 		expect(first.minimumQuickGates).toHaveLength(1);
 		expect(first.minimumFullGates).toHaveLength(1);
 		first.concurrency = 7;
 		await writeFile(path, JSON.stringify(first));
-		select.mockResolvedValueOnce(`${gpt.provider}/${gpt.id} (${gpt.name})`).mockResolvedValueOnce(
-			`${opus.provider}/${opus.id} (${opus.name})`,
-		);
 		expect(await configurePolicy(ctx, path)).toBe(true);
 		expect(decodeMachinePolicy(JSON.parse(await readFile(path, "utf8"))).concurrency).toBe(7);
 	});
 
-	it("excludes unauthenticated or non-max scoped models", async () => {
-		const root = await mkdtemp(join(tmpdir(), "pi-deep-config-models-"));
+	it("allows one generic authenticated model for every role", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-deep-config-generic-"));
 		temporary.push(root);
-		const unauthenticated = { ...gpt, provider: "unauth" } as Model<Api>;
-		const noMax = { ...gpt, provider: "no-max", thinkingLevelMap: { max: null } } as unknown as Model<Api>;
+		const generic = {
+			provider: "local",
+			id: "small-model",
+			name: "Small Model",
+			reasoning: false,
+		} as unknown as Model<Api>;
+		const ui = {
+			select: vi.fn(async (title: string, choices: string[]) =>
+				title.includes("thinking") ? "off" : choices[0],
+			),
+			confirm: vi.fn().mockResolvedValue(false),
+		};
+		const path = join(root, "config.json");
 		const ctx = {
 			hasUI: true,
-			scopedModels: [{ model: unauthenticated }, { model: noMax }],
-			modelRegistry: registry([unauthenticated, noMax], (model) => model.provider !== "unauth"),
+			scopedModels: [{ model: generic }],
+			modelRegistry: registry([generic]),
+			ui,
+		} as unknown as ExtensionCommandContext;
+		expect(await configurePolicy(ctx, path)).toBe(true);
+		const configured = decodeMachinePolicy(JSON.parse(await readFile(path, "utf8")));
+		expect(configured.models.orchestrator.thinkingLevel).toBe("off");
+		expect(configured.models.worker?.id).toBe(generic.id);
+		expect(configured.models.reviewers).toHaveLength(1);
+	});
+
+	it("excludes unauthenticated scoped models", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-deep-config-models-"));
+		temporary.push(root);
+		const unauthenticated = { ...orchestrator, provider: "unauth" } as Model<Api>;
+		const ctx = {
+			hasUI: true,
+			scopedModels: [{ model: unauthenticated }],
+			modelRegistry: registry([unauthenticated], false),
 			ui: { select: vi.fn() },
 		} as unknown as ExtensionCommandContext;
 		await expect(configurePolicy(ctx, join(root, "config.json"))).rejects.toThrow(
-			"No authenticated GPT 5.6 Sol model is available",
+			"No authenticated model is available",
 		);
 	});
 
@@ -218,7 +321,12 @@ describe("config writer", () => {
 		temporary.push(root);
 		const path = join(root, "config.json");
 		await writeFile(path, JSON.stringify({ models: machineValue().models }));
-		const ctx = { hasUI: true, scopedModels: [], modelRegistry: registry([gpt, opus]), ui: { select: vi.fn() } } as unknown as ExtensionCommandContext;
+		const ctx = {
+			hasUI: true,
+			scopedModels: [],
+			modelRegistry: registry([orchestrator, worker, reviewer]),
+			ui: { select: vi.fn() },
+		} as unknown as ExtensionCommandContext;
 		await expect(configurePolicy(ctx, path)).rejects.toThrow("will not be translated");
 	});
 });

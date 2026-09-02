@@ -50,10 +50,10 @@ async function machinePolicy(agentDir: string) {
 	const path = join(agentDir, "pi-deep-work", "config.json");
 	await mkdir(join(agentDir, "pi-deep-work"), { recursive: true });
 	const machine = decodeMachinePolicy({
-				schemaVersion: 1,
+				schemaVersion: 2,
 				models: {
-					gpt: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
-					opusReviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
+					orchestrator: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
+					reviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
 				},
 				concurrency: 1,
 				maxRepairRounds: 0,

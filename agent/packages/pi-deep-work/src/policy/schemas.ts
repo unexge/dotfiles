@@ -13,13 +13,19 @@ const mainline = Type.Refine(Type.String({ minLength: 1, maxLength: 255 }), (val
 const argv = Type.Array(nonEmpty, { minItems: 1 });
 const timeout = Type.Integer({ minimum: 1_000, maximum: 3_600_000 });
 const language = StringEnum(["rust", "zig", "python", "typescript"] as const);
+const thinkingLevel = StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const);
 
 const ModelSelectionSchema = Type.Object(
 	{
 		provider: nonEmpty,
 		id: nonEmpty,
-		thinkingLevel: Type.Literal("max"),
+		thinkingLevel,
 	},
+	{ additionalProperties: false },
+);
+
+const LegacyModelSelectionSchema = Type.Object(
+	{ provider: nonEmpty, id: nonEmpty, thinkingLevel: Type.Literal("max") },
 	{ additionalProperties: false },
 );
 
@@ -81,24 +87,44 @@ const LanguageScopeSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const machinePolicyFields = {
+	concurrency: Type.Integer({ minimum: 1, maximum: 8 }),
+	maxRepairRounds: Type.Integer({ minimum: 0, maximum: 5 }),
+	commandTimeoutMs: timeout,
+	minimumQuickGates: Type.Array(GateSpecSchema, { minItems: 1 }),
+	minimumFullGates: Type.Array(GateSpecSchema, { minItems: 1 }),
+	observations: Type.Array(ObservationSpecSchema),
+	verificationContracts: Type.Array(VerificationContractSchema),
+	selectors: Type.Array(SelectorSpecSchema),
+};
+
 export const MachinePolicySchema = Type.Object(
+	{
+		schemaVersion: Type.Literal(2),
+		models: Type.Object(
+			{
+				orchestrator: ModelSelectionSchema,
+				worker: Type.Optional(ModelSelectionSchema),
+				reviewers: Type.Array(ModelSelectionSchema, { minItems: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+		...machinePolicyFields,
+	},
+	{ additionalProperties: false },
+);
+
+const LegacyMachinePolicySchema = Type.Object(
 	{
 		schemaVersion: Type.Literal(1),
 		models: Type.Object(
 			{
-				gpt: ModelSelectionSchema,
-				opusReviewers: Type.Array(ModelSelectionSchema, { minItems: 1 }),
+				gpt: LegacyModelSelectionSchema,
+				opusReviewers: Type.Array(LegacyModelSelectionSchema, { minItems: 1 }),
 			},
 			{ additionalProperties: false },
 		),
-		concurrency: Type.Integer({ minimum: 1, maximum: 8 }),
-		maxRepairRounds: Type.Integer({ minimum: 0, maximum: 5 }),
-		commandTimeoutMs: timeout,
-		minimumQuickGates: Type.Array(GateSpecSchema, { minItems: 1 }),
-		minimumFullGates: Type.Array(GateSpecSchema, { minItems: 1 }),
-		observations: Type.Array(ObservationSpecSchema),
-		verificationContracts: Type.Array(VerificationContractSchema),
-		selectors: Type.Array(SelectorSpecSchema),
+		...machinePolicyFields,
 	},
 	{ additionalProperties: false },
 );
@@ -126,6 +152,7 @@ export const SelectorProposalSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export type ModelSelection = Static<typeof ModelSelectionSchema>;
 export type GateSpec = Static<typeof GateSpecSchema>;
 export type ObservationSpec = Static<typeof ObservationSpecSchema>;
 export type VerificationContract = Static<typeof VerificationContractSchema>;
@@ -153,6 +180,20 @@ function decode<TSchemaDef extends TSchema>(schema: TSchemaDef, value: unknown):
 	return value as Static<TSchemaDef>;
 }
 
-export const decodeMachinePolicy = (value: unknown): MachinePolicy => decode(MachinePolicySchema, value);
+export function decodeMachinePolicy(value: unknown): MachinePolicy {
+	if (Check(MachinePolicySchema, value)) return value;
+	if (Check(LegacyMachinePolicySchema, value)) {
+		return decode(MachinePolicySchema, {
+			...value,
+			schemaVersion: 2,
+			models: {
+				orchestrator: value.models.gpt,
+				reviewers: value.models.opusReviewers,
+			},
+		});
+	}
+	return decode(MachinePolicySchema, value);
+}
+
 export const decodeProjectPolicy = (value: unknown): ProjectPolicy => decode(ProjectPolicySchema, value);
 export const decodeSelectorProposal = (value: unknown): SelectorProposal => decode(SelectorProposalSchema, value);

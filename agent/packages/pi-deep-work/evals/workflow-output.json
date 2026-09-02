@@ -11,7 +11,7 @@
     "command": "design",
     "assertions": [
       "synthesizes two bounded candidates into one exact design artifact",
-      "uses a complete current-subject Opus design panel",
+      "uses a complete current-subject design review panel",
       "returns DesignApproved only from the shared approver"
     ]
   },
@@ -19,7 +19,7 @@
     "command": "review",
     "assertions": [
       "reviews one exact Git or Jujutsu observed diff",
-      "uses every configured Opus reviewer",
+      "uses every configured review agent",
       "returns ReviewApproved or normal ChangesRequired without modifying source"
     ]
   },
@@ -34,7 +34,7 @@
   {
     "command": "build",
     "assertions": [
-      "uses a behavior-bound Opus-approved design",
+      "uses a behavior-bound review-panel-approved design",
       "persists an implementation checkpoint and same-subject qualification",
       "leaves every non-Verified candidate uncommitted and never pushes"
     ]

@@ -218,7 +218,7 @@ function validateCodeReview(
 		throw new Error("Code review names another candidate");
 	}
 	const expectedSubjectDigest = reviewSubjectDigest(evidence.subject);
-	const expectedReviewers = policy.machine.models.opusReviewers.map((reviewer) => `${reviewer.provider}/${reviewer.id}`);
+	const expectedReviewers = policy.machine.models.reviewers.map((reviewer) => `${reviewer.provider}/${reviewer.id}`);
 	if (
 		evidence.panel.subjectDigest !== expectedSubjectDigest ||
 		evidence.panel.record.subjectDigest !== expectedSubjectDigest ||

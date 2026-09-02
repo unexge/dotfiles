@@ -86,15 +86,23 @@ async function fixture(options: { tokensPerSecond?: number } = {}) {
 		tokensPerSecond: options.tokensPerSecond,
 		models: [
 			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "fast-worker", name: "Fast Worker", reasoning: true },
 			{ id: "claude-opus-4.8", name: "Claude Opus 4.8", reasoning: true },
 		],
 	});
 	const runtime = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: join(root, "models.json") });
 	runtime.registerNativeProvider(faux.provider);
-	const gpt = runtime.getModel(faux.provider.id, "gpt-5.6-sol");
-	const opus = runtime.getModel(faux.provider.id, "claude-opus-4.8");
-	if (!gpt || !opus) throw new Error("Faux models were not registered");
-	const models: ResolvedModels = { gpt, opusReviewers: [opus] };
+	const orchestrator = runtime.getModel(faux.provider.id, "gpt-5.6-sol");
+	const worker = runtime.getModel(faux.provider.id, "fast-worker");
+	const reviewer = runtime.getModel(faux.provider.id, "claude-opus-4.8");
+	if (!orchestrator || !worker || !reviewer) throw new Error("Faux models were not registered");
+	orchestrator.thinkingLevelMap = { xhigh: "xhigh", max: "max" };
+	reviewer.thinkingLevelMap = { xhigh: "xhigh", max: "max" };
+	const models: ResolvedModels = {
+		orchestrator: { model: orchestrator, thinkingLevel: "max" },
+		worker: { model: worker, thinkingLevel: "high" },
+		reviewers: [{ model: reviewer, thinkingLevel: "xhigh" }],
+	};
 	return { root, faux, runtime, models };
 }
 
@@ -108,11 +116,16 @@ describe("AgentGateway", () => {
 			"implement",
 			"repair",
 		]);
-		expect(Object.entries(agentJobPolicy).filter(([, policy]) => policy.model === "opus").map(([kind]) => kind)).toEqual([
+		expect(Object.entries(agentJobPolicy).filter(([, policy]) => policy.model === "worker").map(([kind]) => kind)).toEqual([
+			"explore",
+			"implement",
+			"repair",
+		]);
+		expect(Object.entries(agentJobPolicy).filter(([, policy]) => policy.model === "reviewer").map(([kind]) => kind)).toEqual([
 			"review-design",
 			"review-code",
 		]);
-		expect(agentJobPolicy.edit.tools).toBe("none");
+		expect(agentJobPolicy.edit).toMatchObject({ model: "orchestrator", tools: "none" });
 	});
 
 	it("rebinds a fresh gateway to a resumed RunAuthority", async () => {
@@ -126,7 +139,7 @@ describe("AgentGateway", () => {
 		expect(() => rebound.assertAuthority(first)).toThrow("another RunAuthority");
 	});
 
-	it("uses the fixed GPT/read policy and isolates child resources", async () => {
+	it("uses the configured orchestrator and thinking level while isolating child resources", async () => {
 		const values = await fixture();
 		await writeFile(join(values.root, "AGENTS.md"), "SECRET PROJECT CONTEXT", "utf8");
 		await mkdir(join(values.root, ".pi", "skills", "secret"), { recursive: true });
@@ -134,8 +147,9 @@ describe("AgentGateway", () => {
 		await writeFile(join(values.root, ".pi", "skills", "secret", "SKILL.md"), "SECRET PROJECT SKILL", "utf8");
 		await writeFile(join(values.root, ".pi", "prompts", "secret.md"), "SECRET PROJECT PROMPT", "utf8");
 		values.faux.setResponses([
-			(context: Context, _options: SimpleStreamOptions | undefined, _state: unknown, model: Model<string>) => {
+			(context: Context, options: SimpleStreamOptions | undefined, _state: unknown, model: Model<string>) => {
 				expect(model.id).toBe("gpt-5.6-sol");
+				expect(options?.reasoning).toBe("max");
 				expect(context.systemPrompt).toContain("# Planner");
 				expect(context.systemPrompt).not.toContain("SECRET PROJECT CONTEXT");
 				expect(context.systemPrompt).not.toContain("SECRET PROJECT SKILL");
@@ -166,7 +180,9 @@ describe("AgentGateway", () => {
 	it("gives only implement and repair jobs mutation tools", async () => {
 		const values = await fixture();
 		values.faux.setResponses([
-			(context) => {
+			(context, options, _state, model) => {
+				expect(model.id).toBe("fast-worker");
+				expect(options?.reasoning).toBe("high");
 				expect(context.tools?.map((entry) => entry.name).sort()).toEqual(
 					["deep_submit", "workspace_edit", "workspace_read", "workspace_search", "workspace_write"].sort(),
 				);
@@ -203,11 +219,12 @@ describe("AgentGateway", () => {
 		).rejects.toThrow("only implement and repair");
 	});
 
-	it("selects the configured Opus reviewer and keeps it read-only", async () => {
+	it("selects the configured reviewer and keeps it read-only", async () => {
 		const values = await fixture();
 		values.faux.setResponses([
-			(context, _options, _state, model) => {
+			(context, options, _state, model) => {
 				expect(model.id).toBe("claude-opus-4.8");
+				expect(options?.reasoning).toBe("xhigh");
 				expect(context.tools?.map((entry) => entry.name).sort()).toEqual(
 					["deep_submit", "workspace_read", "workspace_search"].sort(),
 				);
@@ -231,13 +248,15 @@ describe("AgentGateway", () => {
 		expect(result.role).toBe("code-reviewer");
 		await expect(
 			gateway.run({ kind: "review-design", label: "bad reviewer", task: "Review", reviewerIndex: 1 }),
-		).rejects.toThrow("Unknown Opus reviewer index");
+		).rejects.toThrow("Unknown reviewer index");
 	});
 
 	it("gives editor sessions no repository tools", async () => {
 		const values = await fixture();
 		values.faux.setResponses([
-			(context) => {
+			(context, options, _state, model) => {
+				expect(model.id).toBe("gpt-5.6-sol");
+				expect(options?.reasoning).toBe("max");
 				expect(context.tools?.map((entry) => entry.name)).toEqual(["deep_submit"]);
 				return fauxAssistantMessage(
 					fauxToolCall("deep_submit", {

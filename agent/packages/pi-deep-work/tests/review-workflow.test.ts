@@ -27,10 +27,10 @@ const reviewerModels = ["test/claude-opus-4.8", "test/claude-opus-5.0"];
 function policy() {
 	return resolvePolicy(
 		decodeMachinePolicy({
-			schemaVersion: 1,
+			schemaVersion: 2,
 			models: {
-				gpt: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
-				opusReviewers: reviewerModels.map((model) => ({
+				orchestrator: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
+				reviewers: reviewerModels.map((model) => ({
 					provider: "test",
 					id: model.slice("test/".length),
 					thinkingLevel: "max",

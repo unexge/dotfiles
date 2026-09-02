@@ -36,10 +36,10 @@ const observation: GitCleanObservationSubject = {
 function policy() {
 	return resolvePolicy(
 		decodeMachinePolicy({
-			schemaVersion: 1,
+			schemaVersion: 2,
 			models: {
-				gpt: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
-				opusReviewers: reviewerModels.map((model) => ({
+				orchestrator: { provider: "test", id: "gpt-5.6-sol", thinkingLevel: "max" },
+				reviewers: reviewerModels.map((model) => ({
 					provider: "test",
 					id: model.slice("test/".length),
 					thinkingLevel: "max",
@@ -269,7 +269,7 @@ describe("complete review panel", () => {
 		}
 	});
 
-	it("records changes required from original Opus severity regardless of GPT decisions", async () => {
+	it("records changes required from original reviewer severity regardless of orchestrator decisions", async () => {
 		const substantive = finding("important");
 		const runMany = vi.fn().mockResolvedValue(settlements([report("changes_required", [substantive]), report()]));
 		const runSettled = vi.fn().mockResolvedValue({
@@ -303,7 +303,7 @@ describe("complete review panel", () => {
 
 	it("drops failed adjudication without changing suggestion-only approval", async () => {
 		const runMany = vi.fn().mockResolvedValue(settlements([report("approve", [finding("suggestion")]), report()]));
-		const values = await fixture(runMany, vi.fn().mockResolvedValue({ ok: false, error: "gpt failed" }));
+		const values = await fixture(runMany, vi.fn().mockResolvedValue({ ok: false, error: "orchestrator failed" }));
 		const subject = designSubject("design");
 		const result = await values.panel.review({
 			subject,
