@@ -95,4 +95,4 @@ $env.ZELLIJ_LABEL = "M1 Pro"
 $env.ZELLIJ_LABEL_COLOR = "#73b8ff"
 ```
 
-The bottom bar displays `Zellij` when `ZELLIJ_LABEL` is absent and gray `#cccac2` when `ZELLIJ_LABEL_COLOR` is absent.
+The bottom bar displays `Zellij` when `ZELLIJ_LABEL` is absent and gray `#cccac2` when `ZELLIJ_LABEL_COLOR` is absent. Start a fresh Zellij session after changing either value so the server inherits it.

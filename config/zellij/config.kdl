@@ -220,7 +220,7 @@ plugins {
         format_left "{command_machine}{mode}{tabs}"
         format_space "#[bg=#131721]"
 
-        command_machine_command "nu --no-config-file -c 'source-env ($nu.default-config-dir | path join \"local.nu\"); let label = ($env.ZELLIJ_LABEL? | default \"Zellij\"); let color = ($env.ZELLIJ_LABEL_COLOR? | default \"#cccac2\"); $\"#[fg=($color),bg=#131721,bold] ($label)\" | print -n'"
+        command_machine_command "sh -c 'printf \"#[fg=%s,bg=#131721,bold] %s\" \"${ZELLIJ_LABEL_COLOR:-#cccac2}\" \"${ZELLIJ_LABEL:-Zellij}\"'"
         command_machine_format "{stdout}"
         command_machine_interval "0"
         command_machine_rendermode "dynamic"
