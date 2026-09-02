@@ -206,11 +206,19 @@ keybinds clear-defaults=true {
     }
 }
 
+ui {
+    pane_frames {
+        hide_session_name true
+    }
+}
+
 plugins {
     tab-bar location="zellij:tab-bar"
     status-bar location="zellij:status-bar"
     strider location="zellij:strider"
-    compact-bar location="zellij:compact-bar"
+    compact-bar location="zellij:tab-bar" {
+        hide_swap_layout_indication true
+    }
     session-manager location="zellij:session-manager"
     welcome-screen location="zellij:session-manager" {
         welcome_screen true
@@ -227,5 +235,5 @@ support_kitty_keyboard_protocol true
 advanced_mouse_actions false
 default_shell "nu"
 pane_frames false
-theme "ayu-dark"
+theme "ayu-dark-flat"
 default_layout "compact"

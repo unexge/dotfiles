@@ -34,7 +34,8 @@ for target in \
   "$CONFIG_HOME/hunk/extensions/reviewed-files/index.tsx" \
   "$NUSHELL_HOME/config.nu" \
   "$NUSHELL_HOME/env.nu" \
-  "$ZELLIJ_HOME/config.kdl"; do
+  "$ZELLIJ_HOME/config.kdl" \
+  "$ZELLIJ_HOME/themes/ayu-dark-flat.kdl"; do
   if [[ ! -L "$target" ]]; then
     echo "[ERROR] Expected managed link: $target" >&2
     missing=1
