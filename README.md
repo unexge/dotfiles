@@ -71,7 +71,7 @@ packages/Brewfile.macos    macOS-only packages and casks
 packages/Brewfile.linux    Linux-only packages
 packages/cargo.txt         Cargo binaries
 packages/npm.txt           Global npm packages
-packages/skills.txt        Third-party Agent Skills repository paths
+packages/skills.txt        Selected third-party Agent Skills
 agent/settings.json        Pi packages and global Pi settings
 agent/packages/pi-deep-work Local high-rigor Pi workflows and skills
 ```
