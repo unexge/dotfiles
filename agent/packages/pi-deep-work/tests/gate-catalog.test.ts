@@ -1,10 +1,14 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolvePolicy } from "../src/policy/catalog.ts";
 import { decodeMachinePolicy, decodeProjectPolicy } from "../src/policy/schemas.ts";
 import { TrustedCommand, TrustedCommandCatalog } from "../src/gates/catalog.ts";
+import { discoverProjectCapabilities } from "../src/gates/languages.ts";
+import { detectRepository } from "../src/vcs/detect.ts";
+import { commandRunner } from "../src/vcs/runner.ts";
+import { createRepositoryFixture } from "./helpers/repositories.ts";
 
 const temporary: string[] = [];
 
@@ -68,6 +72,47 @@ describe("trusted command catalog", () => {
 		expect(selected.command.argv).toEqual(["cargo", "test", "--locked"]);
 		expect(selected.command.claimKeys).toEqual(["behavior.ok"]);
 		expect(selected.value).toBe("crates/core/tests/cache.rs");
+		expect(catalog.selectorGuide()).toEqual([
+			{
+				selectorId: "rust-test-path",
+				language: "rust",
+				valuePattern: "[a-zA-Z0-9_./-]+\\.rs",
+				scopes: ["crates/core"],
+			},
+		]);
+		expect(JSON.stringify(catalog.selectorGuide())).not.toContain("cargo");
+		expect(Object.keys(catalog.selectorGuide()[0])).not.toContain("observationId");
+	});
+
+	it("runs machine gates only for languages active in the project policy", async () => {
+		const base = policy();
+		const project = decodeProjectPolicy({
+			schemaVersion: 1,
+			mainline: "main",
+			quickGates: [
+				{ id: "ts-check", languages: ["typescript"], argv: ["npm", "run", "check"], timeoutMs: 5_000 },
+			],
+			fullGates: [
+				{ id: "ts-test", languages: ["typescript"], argv: ["npm", "test"], timeoutMs: 5_000 },
+			],
+			normalizers: [],
+			observations: [
+				{ id: "ts-observation", claimKeys: ["typescript.tests"], argv: ["npm", "test"], timeoutMs: 5_000 },
+			],
+			verificationContracts: [],
+			selectors: [
+				{ id: "ts-path", language: "typescript", observationId: "ts-observation", valuePattern: ".+\\.ts" },
+			],
+			languageScopes: [],
+		});
+		const resolved = resolvePolicy(base.machine, project);
+		const root = await mkdtemp(join(tmpdir(), "pi-deep-gate-languages-"));
+		temporary.push(root);
+
+		const catalog = await TrustedCommandCatalog.build(resolved, root);
+
+		expect(catalog.commandsFor("quick").map((command) => command.id)).toEqual(["ts-check"]);
+		expect(catalog.commandsFor("full").map((command) => command.id)).toEqual(["ts-test"]);
 	});
 
 	it("rejects flags, wrappers, traversal, wrong languages, and paths outside trusted scopes", async () => {
@@ -85,46 +130,61 @@ describe("trusted command catalog", () => {
 		}
 	});
 
-	it("emits non-installing package commands with locked/check flags", async () => {
-		const root = await mkdtemp(join(tmpdir(), "pi-deep-language-plans-"));
-		temporary.push(root);
-		await writeFile(join(root, "Cargo.toml"), "[package]\nname='x'\nversion='0.1.0'\n", "utf8");
-		await writeFile(
-			join(root, "package.json"),
-			JSON.stringify({ scripts: { typecheck: "tsc --noEmit", test: "vitest -u" } }),
-			"utf8",
-		);
-		const catalog = await TrustedCommandCatalog.build(policy(), root);
-		const commands = [...catalog.packageCommands("quick"), ...catalog.packageCommands("full")];
-		const argv = commands.map((command) => command.argv.join(" "));
-		expect(argv).toContain("cargo fmt --all -- --check");
-		expect(argv).toContain("cargo check --workspace --all-targets --locked");
-		expect(argv).toContain("cargo test --workspace --locked");
-		expect(argv).toContain("npm run --silent typecheck");
-		expect(commands.map((command) => command.id)).not.toContain("package.typescript.test");
-		expect(argv.some((value) => /(?:install| add | update |--fix|--write)/.test(value))).toBe(false);
+	it("discovers non-installing package commands with locked/check flags", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			await fixture.write("Cargo.toml", "[package]\nname='x'\nversion='0.1.0'\n");
+			await fixture.write(
+				"package.json",
+				JSON.stringify({ scripts: { typecheck: "tsc --noEmit", test: "vitest -u" } }),
+			);
+			const repository = await detectRepository(fixture.root, commandRunner);
+			const plan = await discoverProjectCapabilities(repository, commandRunner, 5_000);
+			const commands = [...plan.quickGates, ...plan.fullGates];
+			const argv = commands.map((command) => command.argv.join(" "));
+			expect(argv).toContain("cargo fmt --manifest-path Cargo.toml --all -- --check");
+			expect(argv).toContain("cargo check --manifest-path Cargo.toml --all-targets --locked");
+			expect(argv).toContain("cargo test --manifest-path Cargo.toml --locked");
+			expect(argv).toContain("npm run --silent typecheck");
+			expect(plan.fullGates.some((command) => command.languages.includes("typescript"))).toBe(false);
+			expect(argv.some((value) => /(?:install| add | update |--fix|--write)/.test(value))).toBe(false);
+		} finally {
+			await fixture.cleanup();
+		}
 	});
 
-	it("keeps other language commands when package.json is malformed", async () => {
-		const root = await mkdtemp(join(tmpdir(), "pi-deep-malformed-package-"));
-		temporary.push(root);
-		await writeFile(join(root, "Cargo.toml"), "[package]\nname='x'\nversion='0.1.0'\n", "utf8");
-		await writeFile(join(root, "package.json"), "{ malformed", "utf8");
-		const catalog = await TrustedCommandCatalog.build(policy(), root);
-		expect(catalog.packageCommands("quick").map((command) => command.id)).toContain("package.rust.check");
-		expect(catalog.packageCommands("quick").some((command) => command.id.startsWith("package.typescript"))).toBe(false);
+	it("keeps other language capabilities when package.json is malformed", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			await fixture.write("Cargo.toml", "[package]\nname='x'\nversion='0.1.0'\n");
+			await fixture.write("package.json", "{ malformed");
+			const repository = await detectRepository(fixture.root, commandRunner);
+			const plan = await discoverProjectCapabilities(repository, commandRunner, 5_000);
+			expect(plan.quickGates.some((command) => command.id.endsWith(".check"))).toBe(true);
+			expect(plan.quickGates.some((command) => command.languages.includes("typescript"))).toBe(false);
+			expect(plan.warnings).toContain("Ignored malformed package.json at package.json");
+			await fixture.write("package.json", "null");
+			const invalid = await discoverProjectCapabilities(repository, commandRunner, 5_000);
+			expect(invalid.quickGates.some((command) => command.id.endsWith(".check"))).toBe(true);
+			expect(invalid.warnings).toContain("Ignored invalid package.json at package.json");
+		} finally {
+			await fixture.cleanup();
+		}
 	});
 
 	it("rejects package scripts with pre/post lifecycle hooks", async () => {
-		const root = await mkdtemp(join(tmpdir(), "pi-deep-language-hooks-"));
-		temporary.push(root);
-		await writeFile(
-			join(root, "package.json"),
-			JSON.stringify({ scripts: { pretypecheck: "npm install", typecheck: "tsc --noEmit" } }),
-			"utf8",
-		);
-		const catalog = await TrustedCommandCatalog.build(policy(), root);
-		expect(catalog.packageCommands("quick").map((command) => command.id)).not.toContain("package.typescript.typecheck");
+		const fixture = await createRepositoryFixture("git");
+		try {
+			await fixture.write(
+				"package.json",
+				JSON.stringify({ scripts: { pretypecheck: "npm install", typecheck: "tsc --noEmit" } }),
+			);
+			const repository = await detectRepository(fixture.root, commandRunner);
+			const plan = await discoverProjectCapabilities(repository, commandRunner, 5_000);
+			expect(plan.quickGates.some((command) => command.languages.includes("typescript"))).toBe(false);
+		} finally {
+			await fixture.cleanup();
+		}
 	});
 
 	it("rejects construction without the package authority token", () => {

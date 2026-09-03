@@ -8,6 +8,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { userOriginFromRegisteredCommand } from "../application/user-origin.ts";
 import { configurePolicy } from "../policy/config-command.ts";
 import { initializeProjectPolicy } from "../policy/project-init.ts";
+import { commandRunner } from "../vcs/runner.ts";
 import { parseCommand, commandNames, usage, type ParsedCommand } from "./command.ts";
 import { registerDeepWorkPresentation } from "./presentation.ts";
 import { DeepWorkService } from "./service.ts";
@@ -54,15 +55,20 @@ export function registerDeepWork(pi: ExtensionAPI, injected?: CommandExecutor): 
 			}
 			if (command.kind === "init") {
 				try {
-					const result = await initializeProjectPolicy(ctx);
+					const result = await initializeProjectPolicy(ctx, commandRunner, { refresh: command.refresh });
 					if (result.status === "created") {
 						ctx.ui.notify(
-							`Repository policy written to ${result.path} with mainline ${result.mainline}. Add trusted gates and behavior observations as needed, then commit it before /deep build or /deep fix.`,
+							`Repository policy written to ${result.path} with mainline ${result.mainline}. Review the discovered capabilities, then keep the checkout clean before /deep build or /deep fix.`,
+							"info",
+						);
+					} else if (result.status === "refreshed") {
+						ctx.ui.notify(
+							`Repository policy refreshed at ${result.path}; previous policy backed up to ${result.backupPath}.`,
 							"info",
 						);
 					} else if (result.status === "existing") {
 						ctx.ui.notify(
-							`Repository policy already exists at ${result.path} with mainline ${result.mainline}; it was not changed.`,
+							`Repository policy already exists at ${result.path} with mainline ${result.mainline}; run /deep init --refresh to update discovered capabilities.`,
 							"info",
 						);
 					}

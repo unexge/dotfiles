@@ -79,6 +79,7 @@ describe("installed extension boundary", () => {
 				isProjectTrusted: () => true,
 				ui: {
 					input,
+					confirm: vi.fn().mockResolvedValue(true),
 					notify: (message: string, level: string) => values.notifications.push({ message, level }),
 				},
 			} as unknown as ExtensionCommandContext;

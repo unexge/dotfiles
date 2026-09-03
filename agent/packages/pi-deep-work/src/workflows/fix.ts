@@ -153,7 +153,8 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 					claimKeys: regression.evidence.claimKeys,
 					failingRecord: regression.evidence.failingRecord,
 				})}`,
-				"Preserve the regression and return exactly its data-only test selectors.",
+				`Required regression selectors: ${canonicalJson(regression.selectorProposals)}`,
+				"Preserve the regression and return exactly these data-only test selectors.",
 			].join("\n\n"),
 		});
 		if (designResult.report.value.status !== "ok") {

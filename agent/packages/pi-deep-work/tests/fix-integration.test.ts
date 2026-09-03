@@ -226,18 +226,22 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 		);
 		const trees = new BackendTreeService(authority, repository, resolved.digest, runner, join(agentDir, "scratch"));
 		let mutationTools: WorkspaceAgentTools | undefined;
+		const agentTasks: Array<{ label: string; task: string }> = [];
 		const gateway = {
 			assertAuthority(value: RunAuthority) {
 				if (value !== authority) throw new Error("wrong authority");
 			},
-			run: async (job: { kind: string }) =>
-				job.kind === "explore"
+			run: async (job: { kind: string; label: string; task: string }) => {
+				agentTasks.push({ label: job.label, task: job.task });
+				return job.kind === "explore"
 					? { report: { value: { status: "ok", summary: "investigated", citations: [], components: ["feature"], flow: ["missing file fails"], constraints: [], unknowns: [] } } }
-					: { report: { value: designReport() } },
+					: { report: { value: designReport() } };
+			},
 			withWorkspaceTools(tools: WorkspaceAgentTools) {
 				mutationTools = tools;
 				return {
-					runMutation: async (job: { label: string }) => {
+					runMutation: async (job: { label: string; task: string }) => {
+						agentTasks.push({ label: job.label, task: job.task });
 						const regression = job.label.includes("regression");
 						const path = regression ? "tests/behavior.rs" : "feature.txt";
 						const content = regression ? "#[test] fn regression() {}\n" : "fixed\n";
@@ -347,6 +351,11 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 				expect.objectContaining({ commandId: "regression", outcome: "passed" }),
 			]),
 		);
+		const regressionTask = agentTasks.find((task) => task.label === "write regression only")?.task;
+		expect(regressionTask).toContain('"selectorId":"regression-path"');
+		expect(regressionTask).not.toContain('"observationId"');
+		const designTask = agentTasks.find((task) => task.label === "design fix")?.task;
+		expect(designTask).toContain('"selectorId":"regression-path","value":"tests/behavior.rs"');
 		if (repository.kind === "git") {
 			expect((await fixture.run("git", ["rev-parse", "HEAD"])).stdout.trim()).not.toBe(headBefore);
 			expect((await fixture.run("git", ["status", "--porcelain"])).stdout).toBe("");

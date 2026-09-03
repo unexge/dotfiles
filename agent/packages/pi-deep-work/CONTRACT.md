@@ -7,7 +7,7 @@ The extension registers only `/deep`:
 ```text
 /deep help
 /deep config
-/deep init
+/deep init [--refresh]
 /deep how <question>
 /deep design <goal>
 /deep review [--base <ref-or-revset>] [intent]
@@ -25,11 +25,11 @@ Only the registered handler mints `UserOrigin`. No LLM-callable tool, prompt ali
 
 ## Policy and models
 
-Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted repositories may supply strict project policy at `.pi/pi-deep-work.json`; invalid policy is rejected. `/deep init` requires active project trust, resolves the canonical repository root, and creates a strict starter project policy without overwriting an existing file.
+Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted repositories may supply strict project policy at `.pi/pi-deep-work.json`; invalid policy is rejected. `/deep init` requires active project trust, resolves the canonical repository root, and deterministically discovers safe checks and behavior mappings from VCS-admitted supported package manifests without executing them. Initial creation never overwrites an existing file. `/deep init --refresh` previews the exact discovered argv and selector patterns, preserves non-`auto.*` entries, writes an immutable backup outside the checkout, and atomically replaces generated entries only after confirmation.
 
 The configured orchestrator owns planning, design, synthesis, verification proposals, and adjudication. The configured work agent owns exploration, implementation, and repair. Every configured review agent must complete design/code review. Each role binds one exact authenticated model and a thinking level supported by that model. Missing, failed, malformed, contradictory, or foreign reviewer output blocks. Orchestrator adjudication is explanatory and cannot clear reviewer severity.
 
-Models never choose argv, observation IDs, claim keys, mappings, subjects, reviewers, or commit authorization. They may return only package-schema data such as selectors.
+Models never choose argv, observation IDs, claim keys, mappings, subjects, reviewers, or commit authorization. They receive a data-only selector guide containing selector IDs, languages, path patterns, and scopes, and may return only schema-valid selector values from that guide.
 
 ## Repository and concurrency
 
@@ -70,7 +70,7 @@ Standalone verify resolves the exact normalized operator claim to one trusted `V
 
 ## Write preflight and mutation
 
-Git requires the configured active mainline branch, a clean conflict-free tracked/nonignored checkout, and stable matching HEAD/index/tree. Jujutsu requires an empty mutable conflict-free single-parent `@`, stable operation/workspace/change identity, and exact configured mainline bookmark ancestry.
+Before run creation, fix/build require a configured mainline plus at least one applicable quick gate, full gate, behavior observation, and selector. Missing capability fails with an actionable `/deep init --refresh` diagnostic and creates no durable run. Machine gates apply only when their declared languages are active in the project policy. Git then requires the configured active mainline branch, a clean conflict-free tracked/nonignored checkout, and stable matching HEAD/index/tree. Jujutsu requires an empty mutable conflict-free single-parent `@`, stable operation/workspace/change identity, and exact configured mainline bookmark ancestry.
 
 Only implement/repair jobs receive repository-scoped read/search/edit/write tools, never bash. Every completed mutation phase records preimage/result digests and a subject-bound checkpoint. An interrupted or uncheckpointed mutation settles `NeedsManualInspection`; no rollback/reset/clean is attempted.
 

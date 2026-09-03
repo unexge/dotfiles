@@ -35,7 +35,7 @@ Initialize each trusted repository where `build` or `fix` should write:
 /deep init
 ```
 
-`/deep init` prompts for the Git branch or Jujutsu bookmark used as mainline, with `main` as the default. It creates a starter `.pi/pi-deep-work.json` without overwriting an existing policy. Add the repository's trusted checks, then commit the file before starting a write workflow.
+`/deep init` prompts for the Git branch or Jujutsu bookmark used as mainline, with `main` as the default. It scans supported root and nested package manifests without running their commands, previews safe checks and behavior observations, and writes them as deterministic `auto.*` entries in `.pi/pi-deep-work.json`. It never overwrites an existing policy. Use `/deep init --refresh` to replace generated entries after confirmation while preserving custom entries and backing up the previous file under `~/.pi/agent/pi-deep-work/policy-backups/`, outside the checkout.
 
 Try a read-only workflow:
 
@@ -55,7 +55,7 @@ While a run is active, the current delegated-agent output appears in a live widg
 |---|---|
 | `/deep help` | Show command syntax. |
 | `/deep config` | Select the orchestrator, review panel, work agent, and thinking levels. |
-| `/deep init` | Create the current repository's starter policy and choose its mainline. |
+| `/deep init [--refresh]` | Discover safe repository checks and create or refresh the project policy. |
 | `/deep how <question>` | Explain the current repository from cited source evidence. |
 | `/deep design <goal>` | Produce a review-panel-approved design without modifying files. |
 | `/deep review [--base <ref-or-revset>] [intent]` | Review the current backend-native diff without modifying files. |
@@ -80,13 +80,13 @@ Useful examples:
 
 ## Repository policy
 
-`how`, `design`, `review`, and `unslop` work after model setup. `fix` and `build` also require a trusted, committed `.pi/pi-deep-work.json` containing:
+`how`, `design`, `review`, and `unslop` work after model setup. `fix` and `build` also require a trusted `.pi/pi-deep-work.json` containing:
 
 - the exact Git branch or Jujutsu bookmark used as `mainline`;
-- trusted behavior observations and selectors;
-- any additional gates, normalizers, or language scopes.
+- at least one applicable quick gate and full gate;
+- trusted behavior observations and selectors.
 
-Run `/deep init` to create a strict starter policy with the selected mainline and empty policy arrays. The initializer refuses to overwrite an existing file. Populate any checks required by the repository and commit the policy before using `fix` or `build`.
+Run `/deep init` to discover supported Rust, Zig, Python, and TypeScript packages and create a strict policy. Discovery reads only VCS-admitted manifests and lock files, never executes package commands, and rejects installing, mutating, lifecycle-hooked, or unknown TypeScript scripts. If no safe behavior test is found, write workflows fail before creating a durable run and direct you to `/deep init --refresh`. Generated entries use reserved `auto.*` IDs; custom entries are preserved across refreshes.
 
 `verify` requires a verification contract whose `claim` matches the command's claim exactly, apart from surrounding or repeated ASCII whitespace.
 
@@ -127,7 +127,7 @@ Minimal Rust example:
 }
 ```
 
-The generated machine policy starts with Cargo check and test as mandatory minimum gates. For a non-Rust repository, replace `minimumQuickGates` and `minimumFullGates` in `~/.pi/agent/pi-deep-work/config.json` with trusted argv for that environment, then adapt the project policy's observation and selector language.
+The generated machine policy contains language-scoped Cargo minimum gates. They run only when the project policy activates Rust; discovered project gates handle supported non-Rust repositories. Machine gates remain an optional additional policy floor for their declared languages.
 
 Policy is strict JSON. Unknown fields, missing required fields, duplicate IDs, unsafe paths, invalid references, and commands exceeding the machine timeout are rejected. Models may select only configured observations; they never choose executable argv.
 
@@ -150,7 +150,7 @@ Durable runs are stored under:
 ~/.pi/agent/pi-deep-work/runs/<backend>-<repository-id>/<run-id>/
 ```
 
-Use `/deep status` to inspect lifecycle, outcome, repository identity, live observation, leases, and recovery challenges. Use `resume` for a valid paused checkpoint. Use `recover` only for interrupted publication when `status` supplies a challenge. Unsafe or ambiguous dirty state stops at `NeedsManualInspection`; the extension does not reset, clean, or stash it.
+Use `/deep status` to inspect lifecycle, outcome, repository identity, live observation, leases, and recovery challenges. Use `resume` for a valid paused checkpoint. Use `recover` only for interrupted publication when `status` supplies a challenge. Unsafe or ambiguous dirty state stops at `NeedsManualInspection`; the extension does not reset, clean, or stash it. Changing the project policy, including `/deep init --refresh`, changes its digest and requires a new run.
 
 See [CONTRACT.md](CONTRACT.md) for the complete behavioral contract and [docs/test-inventory.md](docs/test-inventory.md) for implemented verification coverage.
 

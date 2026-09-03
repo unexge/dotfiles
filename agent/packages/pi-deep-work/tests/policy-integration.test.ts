@@ -183,17 +183,19 @@ describe("project policy initializer", () => {
 			const nested = join(fixture.root, "nested");
 			await mkdir(nested);
 			const input = vi.fn().mockResolvedValue("");
+			const confirm = vi.fn().mockResolvedValue(true);
 			const ctx = {
 				hasUI: true,
 				cwd: nested,
 				isProjectTrusted: () => true,
-				ui: { input },
+				ui: { input, confirm },
 			} as unknown as ExtensionCommandContext;
 
 			const result = await initializeProjectPolicy(ctx, commandRunner);
 			const path = join(fixture.root, ".pi", "pi-deep-work.json");
 			expect(result).toEqual({ status: "created", path, mainline: "main" });
 			expect(input).toHaveBeenCalledWith("Mainline branch or bookmark", "main");
+			expect(confirm.mock.calls[0][1]).toContain("No supported project checks");
 			expect(decodeProjectPolicy(JSON.parse(await readFile(path, "utf8")))).toEqual({
 				schemaVersion: 1,
 				mainline: "main",
@@ -205,6 +207,106 @@ describe("project policy initializer", () => {
 				selectors: [],
 				languageScopes: [],
 			});
+		} finally {
+			await fixture.cleanup();
+		}
+	});
+
+	it("discovers a nested TypeScript package and writes a build-ready policy", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			const packageRoot = join(fixture.root, "packages", "worker");
+			await mkdir(packageRoot, { recursive: true });
+			await writeFile(
+				join(packageRoot, "package.json"),
+				JSON.stringify({
+					scripts: {
+						check: "tsc --noEmit",
+						test: "vitest run",
+					},
+				}),
+			);
+			await writeFile(join(packageRoot, "package-lock.json"), "{}\n");
+			const confirm = vi.fn().mockResolvedValue(true);
+			const ctx = {
+				hasUI: true,
+				cwd: fixture.root,
+				isProjectTrusted: () => true,
+				ui: { input: vi.fn().mockResolvedValue(""), confirm },
+			} as unknown as ExtensionCommandContext;
+
+			await initializeProjectPolicy(ctx, commandRunner);
+
+			const policy = decodeProjectPolicy(
+				JSON.parse(await readFile(join(fixture.root, ".pi", "pi-deep-work.json"), "utf8")),
+			);
+			expect(confirm).toHaveBeenCalledOnce();
+			expect(confirm.mock.calls[0][1]).toContain('["npm","--prefix","packages/worker","run","--silent","check"]');
+			expect(confirm.mock.calls[0][1]).toContain("packages/worker/.+\\.tsx?");
+			expect(policy.quickGates).toEqual([
+				expect.objectContaining({
+					languages: ["typescript"],
+					argv: ["npm", "--prefix", "packages/worker", "run", "--silent", "check"],
+				}),
+			]);
+			expect(policy.fullGates).toEqual([
+				expect.objectContaining({
+					languages: ["typescript"],
+					argv: ["npm", "--prefix", "packages/worker", "run", "--silent", "test"],
+				}),
+			]);
+			expect(policy.observations).toEqual([
+				expect.objectContaining({
+					argv: ["npm", "--prefix", "packages/worker", "run", "--silent", "test"],
+					claimKeys: [expect.stringMatching(/^auto\.typescript\..+\.tests$/)],
+				}),
+			]);
+			expect(policy.selectors).toEqual([
+				expect.objectContaining({
+					language: "typescript",
+					observationId: policy.observations[0].id,
+					valuePattern: "packages/worker/.+\\.tsx?",
+				}),
+			]);
+			expect(policy.languageScopes).toEqual([
+				{ language: "typescript", paths: ["packages/worker"] },
+			]);
+			expect(policy.verificationContracts).toEqual([
+				expect.objectContaining({
+					claim: "discovered tests pass",
+					observationIds: [policy.observations[0].id],
+				}),
+			]);
+		} finally {
+			await fixture.cleanup();
+		}
+	});
+
+	it("uses a safe TypeScript test as the quick gate when no cheaper check exists", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			await writeFile(
+				join(fixture.root, "package.json"),
+				JSON.stringify({ scripts: { test: "vitest run" } }),
+			);
+			const ctx = {
+				hasUI: true,
+				cwd: fixture.root,
+				isProjectTrusted: () => true,
+				ui: { input: vi.fn().mockResolvedValue(""), confirm: vi.fn().mockResolvedValue(true) },
+			} as unknown as ExtensionCommandContext;
+
+			await initializeProjectPolicy(ctx, commandRunner);
+
+			const policy = decodeProjectPolicy(
+				JSON.parse(await readFile(join(fixture.root, ".pi", "pi-deep-work.json"), "utf8")),
+			);
+			expect(policy.quickGates).toEqual([
+				expect.objectContaining({ argv: ["npm", "run", "--silent", "test"] }),
+			]);
+			expect(policy.fullGates).toEqual([
+				expect.objectContaining({ argv: ["npm", "run", "--silent", "test"] }),
+			]);
 		} finally {
 			await fixture.cleanup();
 		}
@@ -243,6 +345,69 @@ describe("project policy initializer", () => {
 			});
 			expect(input).not.toHaveBeenCalled();
 			expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing);
+		} finally {
+			await fixture.cleanup();
+		}
+	});
+
+	it("refreshes generated entries while preserving custom policy and backing up the original", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			const directory = join(fixture.root, ".pi");
+			const path = join(directory, "pi-deep-work.json");
+			await mkdir(directory);
+			const existing = {
+				schemaVersion: 1 as const,
+				mainline: "trunk",
+				quickGates: [
+					{ id: "custom-check", languages: ["typescript"], argv: ["node", "check.js"], timeoutMs: 5_000 },
+					{ id: "auto.stale.check", languages: ["typescript"], argv: ["node", "stale.js"], timeoutMs: 5_000 },
+				],
+				fullGates: [],
+				normalizers: [],
+				observations: [
+					{ id: "auto.stale.tests", claimKeys: ["auto.stale.tests"], argv: ["node", "stale.js"], timeoutMs: 5_000 },
+				],
+				verificationContracts: [
+					{ id: "auto.stale-contract", claim: "stale", requiredClaimKeys: ["auto.stale.tests"], observationIds: ["auto.stale.tests"] },
+				],
+				selectors: [
+					{ id: "auto.stale.path", language: "typescript", observationId: "auto.stale.tests", valuePattern: "stale-package/.+\\.ts" },
+				],
+				languageScopes: [
+					{ language: "typescript", paths: ["stale-package"] },
+					{ language: "python", paths: ["custom-python"] },
+				],
+			};
+			await writeFile(path, `${JSON.stringify(existing, null, 2)}\n`);
+			await writeFile(
+				join(fixture.root, "package.json"),
+				JSON.stringify({ scripts: { check: "tsc --noEmit", test: "vitest run" } }),
+			);
+			const input = vi.fn();
+			const ctx = {
+				hasUI: true,
+				cwd: fixture.root,
+				isProjectTrusted: () => true,
+				ui: { input, confirm: vi.fn().mockResolvedValue(true) },
+			} as unknown as ExtensionCommandContext;
+
+			const backupRoot = await mkdtemp(join(tmpdir(), "pi-deep-policy-backups-"));
+			temporary.push(backupRoot);
+			const result = await initializeProjectPolicy(ctx, commandRunner, { refresh: true, backupRoot });
+
+			expect(result.status).toBe("refreshed");
+			if (result.status !== "refreshed") throw new Error("expected refreshed policy");
+			expect(input).not.toHaveBeenCalled();
+			expect(result.backupPath.startsWith(fixture.root)).toBe(false);
+			expect(JSON.parse(await readFile(result.backupPath, "utf8"))).toEqual(existing);
+			const refreshed = decodeProjectPolicy(JSON.parse(await readFile(path, "utf8")));
+			expect(refreshed.mainline).toBe("trunk");
+			expect(refreshed.quickGates.map((gate) => gate.id)).toContain("custom-check");
+			expect(refreshed.quickGates.some((gate) => gate.id.startsWith("auto.typescript."))).toBe(true);
+			expect(JSON.stringify(refreshed)).not.toContain("auto.stale");
+			expect(refreshed.languageScopes).toEqual([{ language: "python", paths: ["custom-python"] }]);
+			expect(refreshed.observations).toHaveLength(1);
 		} finally {
 			await fixture.cleanup();
 		}

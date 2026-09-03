@@ -99,7 +99,9 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				`Design the implementation for the operator goal: ${input.origin.goal}`,
 				"Use this validated frame:",
 				canonicalJson(frame.report.value),
-				"Return only data selectors for trusted behavior observations; never propose argv.",
+				"Trusted selector choices:",
+				canonicalJson(input.catalog.selectorGuide()),
+				"Return only data selectors from these choices; never propose argv.",
 			].join("\n\n"),
 		});
 		if (designResult.report.value.status !== "ok") {

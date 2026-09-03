@@ -141,6 +141,10 @@ export class WorkflowRuntime {
 			machine: join(this.agentDir, "pi-deep-work", "config.json"),
 			canonicalRoot: repository.root,
 		});
+		if (request.workflow === "build" || request.workflow === "fix") {
+			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
+			catalog.assertWriteReady();
+		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
 		const queued = this.queued(request, repository, policy.digest);
 		const ref = await this.store.create(repository.kind, queued);
@@ -244,6 +248,10 @@ export class WorkflowRuntime {
 			canonicalRoot: repository.root,
 		});
 		if (policy.digest !== state.policyDigest) throw new Error("resume policy digest changed");
+		if (state.workflow === "build" || state.workflow === "fix") {
+			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
+			catalog.assertWriteReady();
+		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
 		const origin = userOriginForPersistedGoal(commandOrigin, state.goal);
 		if (state.workflow === "fix" || state.workflow === "build") {

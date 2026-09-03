@@ -1,6 +1,7 @@
 import type { AgentGateway } from "../agents/gateway.ts";
 import type { TrustedCommand, TrustedCommandCatalog, TrustedSelectorResolution } from "../gates/catalog.ts";
 import type { GateExecutor } from "../gates/executor.ts";
+import { canonicalJson } from "../policy/canonical-json.ts";
 import type { BackendTreeService, BackendTreeSnapshot } from "../gates/tree-backend.ts";
 import {
 	mintRedRegressionEvidence,
@@ -91,7 +92,8 @@ export class RegressionAgent {
 					task: [
 						`Add only the narrow executable regression for this bug: ${input.goal}`,
 						`Investigation: ${JSON.stringify(input.investigation)}`,
-						"Do not change production behavior. Return exactly the trusted test selector and exact changed paths.",
+						`Trusted selector choices: ${canonicalJson(this.catalog.selectorGuide())}`,
+						"Do not change production behavior. Return exactly one selector from these choices and the exact changed paths.",
 					].join("\n\n"),
 				},
 				options,

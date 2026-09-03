@@ -116,7 +116,8 @@ export async function resumeFixFromContext(
 				`Design the smallest root-cause fix for: ${input.origin.goal}`,
 				`Investigation: ${canonicalJson(input.context.investigation)}`,
 				`Red evidence: ${canonicalJson(input.context.redEvidence)}`,
-				"Preserve the regression and return exactly its data-only test selectors.",
+				`Required regression selectors: ${canonicalJson(input.context.selectorProposals)}`,
+				"Preserve the regression and return exactly these data-only test selectors.",
 			].join("\n\n"),
 		});
 		if (designResult.report.value.status !== "ok") {

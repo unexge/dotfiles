@@ -2,7 +2,7 @@ import type { ResolvedPolicy } from "../policy/catalog.ts";
 import { canonicalDigest } from "../policy/canonical-json.ts";
 import { resolveSelector } from "../policy/selectors.ts";
 import type { SelectorProposal } from "../policy/schemas.ts";
-import { packageLanguageCommands, type PackageLanguage } from "./languages.ts";
+import type { PackageLanguage } from "./languages.ts";
 
 const trustedCommandToken = Symbol("trusted-command");
 const trustedCommands = new WeakSet<TrustedCommand>();
@@ -40,6 +40,13 @@ export function assertTrustedCommand(command: TrustedCommand): void {
 	if (!trustedCommands.has(command)) throw new Error("Command was not minted by the trusted package catalog");
 }
 
+export interface TrustedSelectorGuide {
+	selectorId: string;
+	language: PackageLanguage;
+	valuePattern: string;
+	scopes: readonly string[];
+}
+
 export interface TrustedSelectorResolution {
 	selectorId: string;
 	value: string;
@@ -70,6 +77,16 @@ function safeSelectorPath(value: string, language: PackageLanguage): string {
 		(language === "typescript" && /\.(?:ts|tsx)$/.test(normalized));
 	if (!accepted) throw new Error(`Selector path does not match ${language}: ${normalized}`);
 	return normalized;
+}
+
+function activeProjectLanguages(policy: ResolvedPolicy): ReadonlySet<PackageLanguage> {
+	const values = new Set<PackageLanguage>();
+	for (const gate of [...(policy.project?.quickGates ?? []), ...(policy.project?.fullGates ?? [])]) {
+		for (const language of gate.languages) values.add(language);
+	}
+	for (const selector of policy.project?.selectors ?? []) values.add(selector.language);
+	for (const scope of policy.project?.languageScopes ?? []) values.add(scope.language);
+	return values;
 }
 
 function makeCommand(
@@ -103,18 +120,25 @@ export class TrustedCommandCatalog {
 		Object.freeze(this);
 	}
 
-	static async build(policy: ResolvedPolicy, repositoryRoot: string): Promise<TrustedCommandCatalog> {
+	static async build(policy: ResolvedPolicy, _repositoryRoot: string): Promise<TrustedCommandCatalog> {
 		const commands = new Map<string, TrustedCommand>();
+		const activeLanguages = activeProjectLanguages(policy);
+		const machineGateApplies = (languages: readonly PackageLanguage[]) =>
+			activeLanguages.size === 0 || languages.some((language) => activeLanguages.has(language));
 		const add = (command: TrustedCommand) => {
 			const key = `${command.category}:${command.id}`;
 			if (commands.has(key)) throw new Error(`Duplicate trusted command: ${key}`);
 			commands.set(key, command);
 		};
 		for (const gate of policy.machine.minimumQuickGates) {
-			add(makeCommand(gate.id, "machine", "quick", gate.argv, gate.timeoutMs));
+			if (machineGateApplies(gate.languages)) {
+				add(makeCommand(gate.id, "machine", "quick", gate.argv, gate.timeoutMs));
+			}
 		}
 		for (const gate of policy.machine.minimumFullGates) {
-			add(makeCommand(gate.id, "machine", "full", gate.argv, gate.timeoutMs));
+			if (machineGateApplies(gate.languages)) {
+				add(makeCommand(gate.id, "machine", "full", gate.argv, gate.timeoutMs));
+			}
 		}
 		for (const gate of policy.project?.quickGates ?? []) {
 			add(makeCommand(gate.id, "project", "quick", gate.argv, gate.timeoutMs));
@@ -135,14 +159,23 @@ export class TrustedCommandCatalog {
 				),
 			);
 		}
-		for (const command of await packageLanguageCommands(repositoryRoot)) {
-			add(makeCommand(command.id, "package", command.category, command.argv, policy.machine.commandTimeoutMs));
-		}
 		return new TrustedCommandCatalog(policy, commands);
 	}
 
 	assertPolicy(policy: ResolvedPolicy): void {
 		if (this.policy !== policy) throw new Error("TrustedCommandCatalog is bound to another resolved policy");
+	}
+
+	assertWriteReady(): void {
+		const missing: string[] = [];
+		if (!this.policy.mainline) missing.push("mainline");
+		if (this.commandsFor("quick").length === 0) missing.push("quick gate");
+		if (this.commandsFor("full").length === 0) missing.push("full gate");
+		if (this.commandsFor("observation").length === 0) missing.push("behavior observation");
+		if (this.policy.selectors.length === 0) missing.push("behavior selector");
+		if (missing.length > 0) {
+			throw new Error(`Write workflow policy is missing ${missing.join(", ")}. Run /deep init --refresh.`);
+		}
 	}
 
 	gate(category: "quick" | "full", id: string): TrustedCommand {
@@ -161,8 +194,20 @@ export class TrustedCommandCatalog {
 		return [...this.commands.values()].filter((command) => command.category === category);
 	}
 
-	packageCommands(category: "quick" | "full"): TrustedCommand[] {
-		return this.commandsFor(category).filter((command) => command.source === "package");
+	selectorGuide(): readonly TrustedSelectorGuide[] {
+		return this.policy.selectors
+			.map((selector) => ({
+				selectorId: selector.id,
+				language: selector.language,
+				valuePattern: selector.valuePattern,
+				scopes: this.policy.languageScopes
+					.filter((scope) => scope.language === selector.language)
+					.flatMap((scope) => [...scope.paths])
+					.sort(),
+			}))
+			.sort((left, right) =>
+				left.selectorId < right.selectorId ? -1 : left.selectorId > right.selectorId ? 1 : 0,
+			);
 	}
 
 	resolveSelector(input: unknown): TrustedSelectorResolution {

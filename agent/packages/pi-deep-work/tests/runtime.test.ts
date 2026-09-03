@@ -11,7 +11,7 @@ import type { WorkspaceAgentTools } from "../src/agents/gateway.ts";
 import type { ResolvedModels } from "../src/policy/models.ts";
 import type { ResolvedPolicy } from "../src/policy/catalog.ts";
 import { resolvePolicy } from "../src/policy/catalog.ts";
-import { decodeMachinePolicy } from "../src/policy/schemas.ts";
+import { decodeMachinePolicy, decodeProjectPolicy } from "../src/policy/schemas.ts";
 import { RunAuthority, RunAuthorityClosedError } from "../src/application/run-authority.ts";
 import { attemptId } from "../src/application/types.ts";
 import { userOriginFromRegisteredCommand } from "../src/application/user-origin.ts";
@@ -194,10 +194,10 @@ class HowRuntime extends WorkflowRuntime {
 	}
 }
 
-function context(root: string): ExtensionCommandContext {
+function context(root: string, trusted = false): ExtensionCommandContext {
 	return {
 		cwd: root,
-		isProjectTrusted: () => false,
+		isProjectTrusted: () => trusted,
 		modelRegistry: {} as never,
 	} as unknown as ExtensionCommandContext;
 }
@@ -448,8 +448,6 @@ describe("workflow runtime", () => {
 				},
 				{ request: { workflow: "review", origin: userOriginFromRegisteredCommand("Review") }, lifecycle: "Blocked" },
 				{ request: { workflow: "verify", origin: userOriginFromRegisteredCommand("Claim") }, lifecycle: "Blocked" },
-				{ request: { workflow: "build", origin: userOriginFromRegisteredCommand("Build") }, lifecycle: "Blocked" },
-				{ request: { workflow: "fix", origin: userOriginFromRegisteredCommand("Fix") }, lifecycle: "Blocked" },
 			];
 			for (const value of cases) {
 				const result = await runtime.start(value.request, context(fixture.root));
@@ -460,6 +458,27 @@ describe("workflow runtime", () => {
 			await fixture.cleanup();
 		}
 	}, 60_000);
+
+	it("rejects an unconfigured write workflow before creating a durable run", async () => {
+		const fixture = await createRepositoryFixture("git");
+		const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-runtime-write-readiness-"));
+		temporary.push(agentDir);
+		try {
+			await machinePolicy(agentDir);
+			const repository = await detectRepository(fixture.root, runner);
+			const runtime = new HowRuntime(agentDir, runner, () => ({}) as ResolvedModels);
+
+			await expect(
+				runtime.start(
+					{ workflow: "build", origin: userOriginFromRegisteredCommand("Build") },
+					context(fixture.root),
+				),
+			).rejects.toThrow("/deep init --refresh");
+			expect(await runtime.store.list(repository.repositoryId)).toEqual([]);
+		} finally {
+			await fixture.cleanup();
+		}
+	});
 
 	it("returns accepted controls and fails a normal return that leaves the run Active", async () => {
 		for (const mode of ["control", "active"] as const) {
@@ -541,7 +560,27 @@ describe("workflow runtime", () => {
 			const agentDir = await mkdtemp(join(tmpdir(), `pi-deep-runtime-write-restart-${dirty}-`));
 			temporary.push(agentDir);
 			try {
-				const resolved = await machinePolicy(agentDir);
+				const machine = (await machinePolicy(agentDir)).machine;
+				const project = decodeProjectPolicy({
+					schemaVersion: 1,
+					mainline: "other",
+					quickGates: [],
+					fullGates: [],
+					normalizers: [],
+					observations: [
+						{ id: "behavior", claimKeys: ["behavior.ok"], argv: ["true"], timeoutMs: 1_000 },
+					],
+					verificationContracts: [],
+					selectors: [
+						{ id: "rust-path", language: "rust", observationId: "behavior", valuePattern: ".+\\.rs" },
+					],
+					languageScopes: [],
+				});
+				await mkdir(join(fixture.root, ".pi"));
+				await writeFile(join(fixture.root, ".pi", "pi-deep-work.json"), JSON.stringify(project));
+				await fixture.run("git", ["add", ".pi/pi-deep-work.json"]);
+				await fixture.run("git", ["commit", "-m", "add policy"]);
+				const resolved = resolvePolicy(machine, project);
 				const runtime = new HowRuntime(agentDir, runner, () => ({}) as ResolvedModels);
 				const repository = await detectRepository(fixture.root, runner);
 				const queued = decodeRunProjection({
@@ -588,7 +627,7 @@ describe("workflow runtime", () => {
 					const resumed = await runtime.resume(
 						ref,
 						userOriginFromRegisteredCommand("resume dirty build"),
-						context(fixture.root),
+						context(fixture.root, true),
 					);
 					expect(resumed.state).toMatchObject({
 						lifecycle: "NeedsManualInspection",
@@ -598,7 +637,7 @@ describe("workflow runtime", () => {
 					const resumed = await runtime.resume(
 						ref,
 						userOriginFromRegisteredCommand("resume clean build"),
-						context(fixture.root),
+						context(fixture.root, true),
 					);
 					expect(resumed.state).toMatchObject({ lifecycle: "Blocked", reason: expect.stringContaining("mainline") });
 				}
@@ -606,7 +645,7 @@ describe("workflow runtime", () => {
 				await fixture.cleanup();
 			}
 		}
-	});
+	}, 20_000);
 
 	it("recovers an abandoned Active run to Blocked without swallowing a pending Cancel", async () => {
 		const fixture = await createRepositoryFixture("git");

@@ -13,11 +13,12 @@ The package has one installed execution graph. All package tests live under `tes
 ## Policy and agents
 
 - Strict machine/project TypeBox schemas, unknown-key rejection, canonical digest, project trust boundary.
-- Canonical-root project policy initialization with a prompted mainline and no overwrite of existing policy.
+- Canonical-root project policy initialization with prompted mainline, nested supported-package discovery, safe-script rejection, deterministic gates/observations/selectors/contracts, confirmation, and no overwrite of existing policy.
+- Explicit refresh preserves custom entries, replaces reserved `auto.*` entries, creates a backup, and writes atomically.
 - Exact authenticated orchestrator, work, and complete reviewer bindings with model-supported thinking levels; legacy model policy migration.
 - Fixed role/model/tool map; only implement/repair receive repository mutation tools; no model bash.
 - Structured report decoding, isolated child resources, bounded concurrency, model cancellation.
-- Data-only selector mapping to package/catalog-owned commands.
+- Data-only selector mapping to package/catalog-owned commands and redacted selector guidance that exposes no argv or observation mapping.
 
 ## Repository and subjects
 
@@ -38,7 +39,7 @@ Coverage includes repository identity, broken metadata, tracked/untracked/staged
 
 ## Evidence and review
 
-- Trusted quick/full/observation catalogs and supervised process-group timeout/cancel/output handling.
+- Trusted quick/full/observation catalogs, project-language filtering of machine gates, write-readiness preflight, and supervised process-group timeout/cancel/output handling.
 - Same-subject immutable gate records and receipts; foreign command/backend/subject/claim rejection.
 - Exactly two normalizer passes and fixed-point candidate sealing.
 - Complete design/code review panels, canonical findings, fresh-subject replay, explanatory-only orchestrator adjudication.

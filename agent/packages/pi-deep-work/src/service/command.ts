@@ -1,7 +1,8 @@
 import type { WorkflowKind } from "../application/types.ts";
 
 export type ParsedCommand =
-	| { kind: "help" | "config" | "init" }
+	| { kind: "help" | "config" }
+	| { kind: "init"; refresh: boolean }
 	| { kind: "status" | "cancel"; runId?: string }
 	| { kind: "resume"; runId: string }
 	| { kind: "recover"; runId: string; challenge: string }
@@ -12,7 +13,7 @@ const workflowNames = new Set<WorkflowKind>(["how", "design", "review", "fix", "
 export const usage = `Usage:
   /deep help
   /deep config
-  /deep init
+  /deep init [--refresh]
   /deep how <question>
   /deep design <goal>
   /deep review [--base <ref-or-revset>] [intent]
@@ -36,9 +37,14 @@ export function parseCommand(raw: string): ParsedCommand {
 	const tokens = raw.trim().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0) return { kind: "help" };
 	const name = tokens.shift()!;
-	if (name === "help" || name === "config" || name === "init") {
+	if (name === "help" || name === "config") {
 		if (tokens.length > 0) throw new CommandParseError(`/deep ${name} does not accept arguments`);
 		return { kind: name };
+	}
+	if (name === "init") {
+		if (tokens.length === 0) return { kind: "init", refresh: false };
+		if (tokens.length === 1 && tokens[0] === "--refresh") return { kind: "init", refresh: true };
+		throw new CommandParseError("/deep init accepts only --refresh");
 	}
 	if (name === "status" || name === "cancel") {
 		if (tokens.length > 1) throw new CommandParseError(`/deep ${name} accepts at most one run ID`);

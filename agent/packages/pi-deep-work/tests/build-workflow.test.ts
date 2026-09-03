@@ -136,12 +136,14 @@ async function fixture() {
 	const preflight = new WritePreflight(authority, trees, repository, resolved, runner);
 	let frameStatus: "ok" | "blocked" | "failed" = "ok";
 	let designStatus: "ok" | "blocked" | "failed" = "ok";
+	const tasks: string[] = [];
 	const gateway = {
 		assertAuthority(value: RunAuthority) {
 			if (value !== authority) throw new Error("wrong authority");
 		},
-		run: async (job: { kind: string }) =>
-			job.kind === "plan"
+		run: async (job: { kind: string; task: string }) => {
+			tasks.push(job.task);
+			return job.kind === "plan"
 				? {
 						report: {
 							value: {
@@ -154,7 +156,8 @@ async function fixture() {
 							},
 						},
 					}
-				: { report: { value: designReport(designStatus) } },
+				: { report: { value: designReport(designStatus) } };
+		},
 	} as unknown as AgentGateway;
 	const catalog = await TrustedCommandCatalog.build(resolved, root);
 	let approvalMode: "approved" | "changes" | "blocked" = "approved";
@@ -271,6 +274,7 @@ async function fixture() {
 		qualifier,
 		catalog,
 		approve,
+		tasks,
 		setFrameStatus(value: typeof frameStatus) {
 			frameStatus = value;
 		},
@@ -345,6 +349,17 @@ describe("build workflow", () => {
 			});
 		});
 	}
+
+	it("provides the designer a data-only trusted selector guide", async () => {
+		const values = await fixture();
+
+		await run(values);
+
+		const designTask = values.tasks.find((task) => task.includes("Design the implementation"));
+		expect(designTask).toContain('"selectorId":"rust-path"');
+		expect(designTask).not.toContain('"observationId"');
+		expect(designTask).not.toContain('"argv"');
+	});
 
 	it("completes design findings as ChangesRequired before mutation", async () => {
 		const values = await fixture();

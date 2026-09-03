@@ -130,7 +130,8 @@ describe("command grammar", () => {
 			challenge: "available/1234",
 		});
 		expect(parseCommand("cancel")).toEqual({ kind: "cancel" });
-		expect(parseCommand("init")).toEqual({ kind: "init" });
+		expect(parseCommand("init")).toEqual({ kind: "init", refresh: false });
+		expect(parseCommand("init --refresh")).toEqual({ kind: "init", refresh: true });
 	});
 
 	it("rejects ambiguous or unsupported grammar", () => {
