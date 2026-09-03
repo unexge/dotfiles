@@ -1,3 +1,4 @@
+;; -*- lexical-binding: nil; -*-
 ;; init.el - Managed by dotfiles (scripts/links.sh)
 
 ;; --- Package setup ---
