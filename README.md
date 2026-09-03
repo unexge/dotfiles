@@ -57,7 +57,7 @@ dot help
 
 Only files tracked in this repository are linked, and links pointing at files the repository no longer contains are removed on the next `dot link`. Existing target files are moved to timestamped `.bak.*` paths before links are created. Mutable application directories are not linked wholesale, so history, caches, and local state remain outside the repository.
 
-Zellij downloads the pinned zjstatus WebAssembly release from GitHub on first use. Zellij then asks once for `ReadApplicationState`, `ChangeApplicationState`, and `RunCommands`. The bottom bar uses `RunCommands` once per instance to read its optional machine label and color from Nushell configuration.
+Zellij downloads the pinned zjstatus WebAssembly release from GitHub on first use. Zellij then asks once for `ReadApplicationState`, `ChangeApplicationState`, and `RunCommands`; zjstatus requests the last permission unconditionally, although this configuration runs no bar commands. `dot link` renders machine-local label settings into Zellij's generated configuration so they are present on the first frame.
 
 ## Dependencies
 
@@ -95,4 +95,4 @@ $env.ZELLIJ_LABEL = "M1 Pro"
 $env.ZELLIJ_LABEL_COLOR = "#73b8ff"
 ```
 
-The bottom bar displays `Zellij` when `ZELLIJ_LABEL` is absent and gray `#cccac2` when `ZELLIJ_LABEL_COLOR` is absent. Start a fresh Zellij session after changing either value so the server inherits it.
+The bottom bar displays `Zellij` when `ZELLIJ_LABEL` is absent and gray `#cccac2` when `ZELLIJ_LABEL_COLOR` is absent. Run `dot link` and start a fresh Zellij session after changing either value.

@@ -217,13 +217,8 @@ plugins {
     status-bar location="zellij:status-bar"
     strider location="zellij:strider"
     compact-bar location="https://github.com/dj95/zjstatus/releases/download/v0.25.0/zjstatus.wasm" {
-        format_left "{command_machine}{mode}{tabs}"
+        format_left "#[fg=__ZELLIJ_LABEL_COLOR__,bg=#131721,bold] __ZELLIJ_LABEL__{mode}{tabs}"
         format_space "#[bg=#131721]"
-
-        command_machine_command "sh -c 'printf \"#[fg=%s,bg=#131721,bold] %s\" \"${ZELLIJ_LABEL_COLOR:-#cccac2}\" \"${ZELLIJ_LABEL:-Zellij}\"'"
-        command_machine_format "{stdout}"
-        command_machine_interval "0"
-        command_machine_rendermode "dynamic"
 
         // Common mode labels use a centered 6-character field; longer labels expand as needed.
         mode_normal "#[fg=#e5e1cf,bg=#131721,bold] NORMAL"
