@@ -33,6 +33,10 @@ import { resolveModels } from "../policy/models.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
 import { ReviewPanel } from "../review/panel.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
+import {
+	loadDesignHandoff,
+	type DesignHandoff,
+} from "../review/design-handoff.ts";
 import { RunStore, type RunRef } from "../store/run-store.ts";
 import { loadRunRecords, type RepositoryRecord } from "./records.ts";
 import { readBuildContext, readFixContext } from "./write-context.ts";
@@ -86,6 +90,9 @@ export interface StartRequest {
 	origin: UserOrigin;
 	base?: string;
 	unslopSource?: UnslopSource;
+	sourceDesignRunId?: string;
+	designFeedback?: string;
+	designSource?: DesignHandoff;
 }
 
 export interface StartHooks {
@@ -141,18 +148,19 @@ export class WorkflowRuntime {
 			machine: join(this.agentDir, "pi-deep-work", "config.json"),
 			canonicalRoot: repository.root,
 		});
-		if (request.workflow === "build" || request.workflow === "fix") {
+		const requestWithSource = await this.resolveDesignSource(request, repository.repositoryId);
+		if (requestWithSource.workflow === "build" || requestWithSource.workflow === "fix") {
 			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
 			catalog.assertWriteReady();
 		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
-		const queued = this.queued(request, repository, policy.digest);
+		const queued = this.queued(requestWithSource, repository, policy.digest);
 		const ref = await this.store.create(repository.kind, queued);
 		const created = await this.store.load(ref);
 		if (created.lifecycle !== "Queued") throw new Error("New run did not remain Queued after creation");
 		const currentAttemptId = attemptId(randomUUID());
 		try {
-			await this.persistRequest(ref, request, repository);
+			await this.persistRequest(ref, requestWithSource, repository);
 		} catch (error) {
 			await this.failQueuedIfNeeded(ref, currentAttemptId, error);
 			throw error;
@@ -166,7 +174,7 @@ export class WorkflowRuntime {
 					ref,
 					repository,
 					attemptId: currentAttemptId,
-					phase: request.workflow,
+					phase: requestWithSource.workflow,
 					pollIntervalMs: 100,
 				},
 				created,
@@ -179,7 +187,7 @@ export class WorkflowRuntime {
 		}
 		try {
 			hooks.onStarted?.(ref);
-			await this.dispatch(request, ctx, repository, policy, models, ref, authority, hooks.onProgress);
+			await this.dispatch(requestWithSource, ctx, repository, policy, models, ref, authority, hooks.onProgress);
 		} catch (error) {
 			if (error instanceof ControlAcceptedError || error instanceof RunAuthorityClosedError) {
 				return { ref, state: await this.store.load(ref) };
@@ -289,12 +297,17 @@ export class WorkflowRuntime {
 				return { ref, state: await this.store.load(ref) };
 			}
 		}
-		const request: StartRequest = {
-			workflow: state.workflow,
-			origin,
-			...(records.request.base ? { base: records.request.base } : {}),
-			...(records.request.unslopSource ? { unslopSource: records.request.unslopSource } : {}),
-		};
+		const request = await this.resolveDesignSource(
+			{
+				workflow: state.workflow,
+				origin,
+				...(records.request.base ? { base: records.request.base } : {}),
+				...(records.request.unslopSource ? { unslopSource: records.request.unslopSource } : {}),
+				...(records.request.sourceDesignRunId ? { sourceDesignRunId: records.request.sourceDesignRunId } : {}),
+				...(records.request.designFeedback ? { designFeedback: records.request.designFeedback } : {}),
+			},
+			repository.repositoryId,
+		);
 		let authority: RunAuthority;
 		try {
 			authority = await RunAuthority.resume(
@@ -590,6 +603,29 @@ export class WorkflowRuntime {
 		return { ref, state, ...recovered };
 	}
 
+	private async resolveDesignSource(request: StartRequest, repositoryId: string): Promise<StartRequest> {
+		if (!request.sourceDesignRunId) {
+			if (request.designFeedback || request.designSource) throw new Error("Design feedback requires a source design run");
+			return request;
+		}
+		if (request.workflow !== "design" && request.workflow !== "build") {
+			throw new Error("Only design and build workflows accept a source design");
+		}
+		const source = await loadDesignHandoff(this.store, request.sourceDesignRunId, repositoryId);
+		if (request.workflow === "design" && !request.designFeedback) {
+			throw new Error("Design revision requires operator feedback");
+		}
+		if (request.workflow === "build" && !source.approvedDesign) {
+			throw new Error("Build requires a DesignApproved source run");
+		}
+		return {
+			...request,
+			origin: userOriginForPersistedGoal(request.origin, source.goal),
+			sourceDesignRunId: source.runId,
+			designSource: source,
+		};
+	}
+
 	private queued(request: StartRequest, repository: DetectedRepository, policyDigest: string): QueuedRun {
 		const now = new Date().toISOString();
 		return decodeRunProjection({
@@ -617,6 +653,8 @@ export class WorkflowRuntime {
 					goal: request.origin.goal,
 					...(request.base ? { base: request.base } : {}),
 					...(request.unslopSource ? { unslopSource: request.unslopSource } : {}),
+					...(request.sourceDesignRunId ? { sourceDesignRunId: request.sourceDesignRunId } : {}),
+					...(request.designFeedback ? { designFeedback: request.designFeedback } : {}),
 				}),
 			),
 		);
@@ -731,6 +769,7 @@ export class WorkflowRuntime {
 					store: this.store,
 					ref,
 					concurrency: policy.machine.concurrency,
+					...(request.designSource ? { source: request.designSource, feedback: request.designFeedback! } : {}),
 					get approvedAt() {
 						return runtimeTimestamp(this, "approvedAt");
 					},
@@ -795,6 +834,7 @@ export class WorkflowRuntime {
 		if (request.workflow === "build") {
 			await runBuildWorkflow({
 				origin: request.origin,
+				...(request.designSource ? { sourceDesign: request.designSource, designFeedback: request.designFeedback } : {}),
 				policy,
 				catalog,
 				authority,

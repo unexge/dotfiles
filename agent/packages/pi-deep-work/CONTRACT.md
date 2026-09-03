@@ -9,10 +9,10 @@ The extension registers only `/deep`:
 /deep config
 /deep init [--refresh]
 /deep how <question>
-/deep design <goal>
+/deep design [--from <run-id>] <goal-or-feedback>
 /deep review [--base <ref-or-revset>] [intent]
 /deep fix <bug report>
-/deep build <goal>
+/deep build [--design <run-id>] [additional constraints]
 /deep verify <claim>
 /deep unslop [--base <ref-or-revset>] [text]
 /deep status [run-id]
@@ -64,7 +64,9 @@ Ignored-only churn is excluded. The package does not materialize hidden snapshot
 - `unslop`: `UnslopReportProduced`
 - `review`: `ReviewApproved` or normal `ChangesRequired`
 - `verify`: deterministic `Verified`, `NotVerified`, or `Inconclusive`
-- `design`: `DesignApproved` or normal `ChangesRequired`
+- `design`: `DesignApproved` or normal `ChangesRequired`. Every completed design writes deterministic human-readable Markdown from the structured reviewed design. `--from` resolves a completed same-repository design, supplies its exact structured artifact, findings, and operator feedback to the revision, and records lineage.
+
+`build --design` accepts only a completed same-repository `DesignApproved` run with a valid immutable record and matching artifact digest. The live write observation must still match the standalone design observation. Build then produces and reviews a behavior-bound derivative; the standalone record never directly authorizes implementation or publication.
 
 Standalone verify resolves the exact normalized operator claim to one trusted `VerificationContract` and runs its complete configured observation set. No model command is executed.
 

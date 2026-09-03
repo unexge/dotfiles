@@ -92,6 +92,8 @@ export class DeepWorkService {
 			workflow: command.workflow,
 			origin,
 			...(command.base ? { base: command.base } : {}),
+			...(command.sourceDesignRunId ? { sourceDesignRunId: command.sourceDesignRunId } : {}),
+			...(command.designFeedback ? { designFeedback: command.designFeedback } : {}),
 			...(command.workflow === "unslop"
 				? { unslopSource: command.unslopText ? { kind: "text", text: command.unslopText } : { kind: "diff", ...(command.base ? { base: command.base } : {}) } }
 				: {}),
@@ -319,6 +321,8 @@ export class DeepWorkService {
 			`policy: ${state.policyDigest}`,
 			`updated: ${state.updatedAt}`,
 		];
+		if (records.request.sourceDesignRunId) lines.push(`source-design-run: ${records.request.sourceDesignRunId}`);
+		if (records.request.designFeedback) lines.push(`design-feedback: ${records.request.designFeedback}`);
 		if (state.lifecycle === "Completed") lines.push(`outcome: ${state.outcome}`, `summary: ${state.summaryArtifact}`);
 		if ("reason" in state) lines.push(`reason: ${state.reason}`);
 		for (const request of [

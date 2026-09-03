@@ -129,6 +129,26 @@ describe("command grammar", () => {
 			runId: "1234",
 			challenge: "available/1234",
 		});
+		expect(parseCommand("design --from abc123 keep existing storage")).toEqual({
+			kind: "start",
+			workflow: "design",
+			goal: "keep existing storage",
+			sourceDesignRunId: "abc123",
+			designFeedback: "keep existing storage",
+		});
+		expect(parseCommand("build --design abc123")).toEqual({
+			kind: "start",
+			workflow: "build",
+			goal: "Build approved design abc123",
+			sourceDesignRunId: "abc123",
+		});
+		expect(parseCommand("build --design abc123 cap retries")).toEqual({
+			kind: "start",
+			workflow: "build",
+			goal: "cap retries",
+			sourceDesignRunId: "abc123",
+			designFeedback: "cap retries",
+		});
 		expect(parseCommand("cancel")).toEqual({ kind: "cancel" });
 		expect(parseCommand("init")).toEqual({ kind: "init", refresh: false });
 		expect(parseCommand("init --refresh")).toEqual({ kind: "init", refresh: true });
@@ -140,6 +160,10 @@ describe("command grammar", () => {
 			"init main",
 			"build",
 			"build --base main goal",
+			"design --from abc123",
+			"design --design abc123 feedback",
+			"build --from abc123",
+			"review --design abc123",
 			"review --base",
 			"review --base main --base other",
 			"unslop --base main prose",

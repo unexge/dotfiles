@@ -84,12 +84,16 @@ function designReport() {
 		summary: "design",
 		citations: [],
 		usage: "caller usage",
+		constraints: ["constraint"],
+		decisions: [{ decision: "one feature module", rationale: "smallest boundary" }],
 		dataShape: "one feature module",
 		interfaces: ["feature()"],
 		modules: ["feature.rs"],
 		invariants: ["returns true"],
+		alternatives: [],
 		tradeoffs: [],
 		verification: ["trusted behavior command"],
+		openQuestions: [],
 		testSelectors: [{ selectorId: "rust-path", value: "tests/behavior.rs" }],
 	};
 }

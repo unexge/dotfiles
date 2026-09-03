@@ -12,8 +12,11 @@ import type { BackendObservationSnapshot, BackendTreeService } from "../src/gate
 import { TrustedCommandCatalog } from "../src/gates/catalog.ts";
 import { PortableLeaseManager } from "../src/lease/repository-lease.ts";
 import { resolvePolicy } from "../src/policy/catalog.ts";
+import { canonicalJson } from "../src/policy/canonical-json.ts";
 import { decodeMachinePolicy } from "../src/policy/schemas.ts";
+import { loadDesignHandoff, type DesignHandoff } from "../src/review/design-handoff.ts";
 import { ReviewPanel } from "../src/review/panel.ts";
+import { digestFrozenArtifact } from "../src/review/subjects.ts";
 import { RunStore } from "../src/store/run-store.ts";
 import type { DetectedRepository } from "../src/vcs/types.ts";
 import { runDesignWorkflow } from "../src/workflows/design.ts";
@@ -88,12 +91,16 @@ function designReport(label: string, status: "ok" | "blocked" | "failed" = "ok")
 		summary: label,
 		citations: [],
 		usage: `${label} usage`,
+		constraints: [`${label} constraint`],
+		decisions: [{ decision: `${label} decision`, rationale: `${label} rationale` }],
 		dataShape: `${label} data`,
 		interfaces: [`${label} interface`],
 		modules: [`${label} module`],
 		invariants: [`${label} invariant`],
+		alternatives: [],
 		tradeoffs: [`${label} tradeoff`],
 		verification: [`${label} verification`],
+		openQuestions: [],
 		testSelectors: [],
 	};
 }
@@ -130,7 +137,7 @@ async function fixture(kind: "git" | "jj" = "git") {
 		workflow: "design" as const,
 		repositoryId: "a".repeat(64),
 		policyDigest: resolved.digest,
-		goal: "design",
+		goal: "Design a cache",
 		createdAt: "2026-08-25T00:00:00.000Z",
 		updatedAt: "2026-08-25T00:00:00.000Z",
 		lastEventRevision: 0,
@@ -154,6 +161,12 @@ async function fixture(kind: "git" | "jj" = "git") {
 					workspaceId: "default",
 					repositoryId: initial.repositoryId,
 				};
+	await store.writeImmutableArtifact(
+		ref,
+		"run/request.json",
+		canonicalJson({ schemaVersion: 1, workflow: "design", goal: "Design a cache" }),
+	);
+	await store.writeImmutableArtifact(ref, "run/repository.json", canonicalJson({ schemaVersion: 1, ...repository }));
 	const authority = await RunAuthority.start(
 		{
 			store,
@@ -266,7 +279,10 @@ async function fixture(kind: "git" | "jj" = "git") {
 	};
 }
 
-async function run(values: Awaited<ReturnType<typeof fixture>>) {
+async function run(
+	values: Awaited<ReturnType<typeof fixture>>,
+	options: { source?: DesignHandoff; feedback?: string } = {},
+) {
 	return runDesignWorkflow({
 		origin: userOriginFromRegisteredCommand("Design a cache"),
 		authority: values.authority,
@@ -278,6 +294,7 @@ async function run(values: Awaited<ReturnType<typeof fixture>>) {
 		concurrency: 2,
 		approvedAt: "2026-08-25T00:00:02.000Z",
 		completedAt: "2026-08-25T00:00:03.000Z",
+		...options,
 	});
 }
 
@@ -301,11 +318,56 @@ describe("design workflow", () => {
 				proposedOutcome: "DesignApproved",
 				authoritative: false,
 				lifecycleAuthority: "state.json",
-				approval: { approvedDesignId: result.approvedDesignId, designArtifactDigest: artifact.designDigest },
+				output: expect.stringContaining("# Design: Design a cache"),
+				approval: {
+					approvedDesignId: result.approvedDesignId,
+					designArtifactDigest: artifact.designDigest,
+					designArtifactPath: expect.stringMatching(/\/design\.json$/),
+				},
+				findings: [],
 				candidates: [{ summary: "candidate-1" }, { summary: "candidate-2" }],
 			});
+			const markdown = await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8");
+			expect(markdown).toContain("## Constraints\n\n- synthesis constraint");
+			expect(markdown).toContain("## Decisions\n\n### synthesis decision");
+			expect(artifact.output).toContain(`Markdown: ${join(values.ref.directory, "artifacts/outputs/design.md")}`);
+			expect(artifact.output).toContain(`Build: /deep build --design ${values.ref.runId.slice(0, 8)}`);
+			const handoff = await loadDesignHandoff(values.store, values.ref.runId.slice(0, 8), values.ref.repositoryId);
+			expect(handoff).toMatchObject({
+				runId: values.ref.runId,
+				goal: "Design a cache",
+				design: { summary: "synthesis" },
+				approvedDesign: { approvedDesignId: result.approvedDesignId, caller: "design" },
+			});
+			await expect(loadDesignHandoff(values.store, values.ref.runId, "b".repeat(64))).rejects.toThrow(
+				"another repository",
+			);
 		});
 	}
+
+	it("revises a prior design with operator feedback and records lineage", async () => {
+		const values = await fixture();
+		const prior = designReport("prior");
+		const source: DesignHandoff = {
+			runId: randomUUID(),
+			goal: "Design a cache",
+			design: prior,
+			designDigest: digestFrozenArtifact(canonicalJson(prior)),
+			findings: [],
+		};
+		await run(values, { source, feedback: "Keep the existing cache owner." });
+		expect(values.candidateJobs.every((job) => job.task.includes("Keep the existing cache owner."))).toBe(true);
+		expect(values.synthesisTask()).toContain("prior decision");
+		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
+		expect(artifact.source).toEqual({
+			runId: source.runId,
+			artifactDigest: source.designDigest,
+			feedback: "Keep the existing cache owner.",
+		});
+		expect(await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8")).toContain(
+			"## Revision",
+		);
+	});
 
 	it("publishes complete important findings as ChangesRequired", async () => {
 		const values = await fixture();
@@ -318,6 +380,14 @@ describe("design workflow", () => {
 		expect(await values.store.load(values.ref)).toMatchObject({ lifecycle: "Completed", outcome: "ChangesRequired" });
 		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
 		expect(artifact.approval.reviewSubjectDigest).toMatch(/^[0-9a-f]{64}$/);
+		expect(artifact.findings).toEqual(result.findings);
+		expect(artifact.output).toContain(`Revise: /deep design --from ${values.ref.runId.slice(0, 8)} <feedback>`);
+		expect(await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8")).toContain(
+			"### important: Design gap",
+		);
+		const handoff = await loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId);
+		expect(handoff.findings).toEqual(result.findings);
+		expect(handoff.approvedDesign).toBeUndefined();
 		await expect(readdir(join(values.ref.directory, "artifacts/approved-designs"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 

@@ -95,12 +95,16 @@ function designReport() {
 		summary: "fix design",
 		citations: [],
 		usage: "preserve regression",
+		constraints: ["preserve behavior"],
+		decisions: [{ decision: "feature state", rationale: "owns the regression" }],
 		dataShape: "feature state",
 		interfaces: ["feature"],
 		modules: ["feature.txt"],
 		invariants: ["regression passes"],
+		alternatives: [],
 		tradeoffs: [],
 		verification: ["trusted regression"],
+		openQuestions: [],
 		testSelectors: [{ selectorId: "regression-path", value: "tests/behavior.rs" }],
 	};
 }

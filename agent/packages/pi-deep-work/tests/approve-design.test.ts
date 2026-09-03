@@ -209,6 +209,25 @@ describe("shared approveDesign", () => {
 		});
 	}
 
+	it("binds standalone design lineage into a build approval", async () => {
+		const values = await fixture();
+		const sourceDesign = {
+			runId: randomUUID(),
+			approvedDesignId: "9".repeat(64),
+			artifactDigest: "8".repeat(64),
+		};
+		const result = await values.approver.approve({
+			caller: "build",
+			design: "build derivative",
+			userOrigin: userOriginFromRegisteredCommand("Build the cache"),
+			expectedObservationDigest,
+			selectorProposals: [{ selectorId: "rust-path", value: "crates/cache/tests/cache.rs" }],
+			sourceDesign,
+			approvedAt: now,
+		});
+		expect(result).toMatchObject({ status: "Approved", record: { caller: "build", sourceDesign } });
+	});
+
 	it("rejects caller and selector authority violations", async () => {
 		const values = await fixture();
 		await expect(

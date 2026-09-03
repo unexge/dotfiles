@@ -13,6 +13,7 @@ import {
 	decodeDesignData,
 	type ApprovedDesignRecord,
 	type BehaviorContract,
+	type DesignSource,
 } from "../review/design.ts";
 import type { CanonicalFinding, PanelDiagnostic, ReviewPanel } from "../review/panel.ts";
 import {
@@ -30,8 +31,9 @@ interface ApproveDesignBase {
 }
 
 export type ApproveDesignInput =
-	| (ApproveDesignBase & { caller: "design"; selectorProposals?: never })
-	| (ApproveDesignBase & { caller: "fix" | "build"; selectorProposals: readonly unknown[] });
+	| (ApproveDesignBase & { caller: "design"; selectorProposals?: never; sourceDesign?: never })
+	| (ApproveDesignBase & { caller: "fix"; selectorProposals: readonly unknown[]; sourceDesign?: never })
+	| (ApproveDesignBase & { caller: "build"; selectorProposals: readonly unknown[]; sourceDesign?: DesignSource });
 
 type DesignReviewSubject = Extract<ReviewSubject, { kind: "standalone-design" | "behavior-design" }>;
 
@@ -43,7 +45,7 @@ export type ApproveDesignResult =
 			reviewSubject: DesignReviewSubject;
 			subjectDigest: string;
 	  }
-	| { status: "Approved"; record: ApprovedDesignRecord };
+	| { status: "Approved"; record: ApprovedDesignRecord; findings: readonly CanonicalFinding[] };
 
 export class DesignApprover {
 	constructor(
@@ -137,9 +139,10 @@ export class DesignApprover {
 			panelArtifactDigest: panelResult.panelArtifact.digest,
 			designDigest,
 			behaviorDigest,
+			...(input.sourceDesign ? { sourceDesignDigest: canonicalDigest(input.sourceDesign) } : {}),
 		});
 		const base = `approved-designs/${approvedDesignId}`;
-		const designPath = `${base}/design.bin`;
+		const designPath = `${base}/design.json`;
 		await this.writeImmutableOrVerify(designPath, input.design);
 		let behaviorValue: ApprovedDesignRecord["behavior"];
 		if (behavior) {
@@ -171,9 +174,10 @@ export class DesignApprover {
 				artifactDigest: panelResult.panelArtifact.digest,
 			},
 			approvedAt: input.approvedAt,
+			...(input.sourceDesign ? { sourceDesign: input.sourceDesign } : {}),
 		});
 		await this.writeImmutableOrVerify(`${base}/record.json`, Buffer.from(canonicalJson(record)));
-		return { status: "Approved", record };
+		return { status: "Approved", record, findings: panelResult.findings };
 	}
 
 	private async writeImmutableOrVerify(path: string, content: string | Buffer): Promise<void> {

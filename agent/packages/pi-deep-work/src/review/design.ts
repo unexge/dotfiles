@@ -1,7 +1,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type Static, type TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { digestPatternSource } from "../application/types.ts";
+import { digestPatternSource, uuidPatternSource } from "../application/types.ts";
 import { canonicalDigest } from "../policy/canonical-json.ts";
 import {
 	BehaviorDesignReviewSubjectSchema,
@@ -10,6 +10,7 @@ import {
 } from "./subjects.ts";
 
 const digest = Type.String({ pattern: digestPatternSource });
+const uuid = Type.String({ pattern: uuidPatternSource });
 const nonEmpty = Type.String({ minLength: 1 });
 const identifier = Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$" });
 const artifactPath = Type.Refine(Type.String({ minLength: 1, maxLength: 1024 }), (value) => {
@@ -68,6 +69,16 @@ const ContractBehaviorSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const DesignSourceSchema = Type.Object(
+	{
+		runId: uuid,
+		approvedDesignId: digest,
+		artifactDigest: digest,
+	},
+	{ additionalProperties: false },
+);
+export type DesignSource = Static<typeof DesignSourceSchema>;
+
 const ApprovedDesignRecordObject = Type.Object(
 	{
 		schemaVersion: Type.Literal(1),
@@ -90,6 +101,7 @@ const ApprovedDesignRecordObject = Type.Object(
 			{ additionalProperties: false },
 		),
 		approvedAt: timestamp,
+		sourceDesign: Type.Optional(DesignSourceSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -99,6 +111,7 @@ export function approvedDesignIdFor(value: {
 	panelArtifactDigest: string;
 	designDigest: string;
 	behaviorDigest: string;
+	sourceDesignDigest?: string;
 }): string {
 	return canonicalDigest({ schemaVersion: 1, ...value });
 }
@@ -114,6 +127,7 @@ export const ApprovedDesignRecordSchema = Type.Refine(ApprovedDesignRecordObject
 	if (value.caller !== "design" && (value.reviewSubject.kind !== "behavior-design" || value.behavior.kind !== "contract")) {
 		return false;
 	}
+	if (value.caller !== "build" && value.sourceDesign) return false;
 	if (value.behavior.kind === "contract" && value.behavior.contract.id !== value.behavior.digest) return false;
 	return (
 		value.approvedDesignId ===
@@ -122,6 +136,7 @@ export const ApprovedDesignRecordSchema = Type.Refine(ApprovedDesignRecordObject
 			panelArtifactDigest: value.panel.artifactDigest,
 			designDigest,
 			behaviorDigest,
+			...(value.sourceDesign ? { sourceDesignDigest: canonicalDigest(value.sourceDesign) } : {}),
 		})
 	);
 });

@@ -3,6 +3,7 @@ import { Check, Errors } from "typebox/value";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 
 const nonEmpty = Type.String({ minLength: 1 });
+const uuid = Type.String({ pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" });
 const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
 
 export const RequestRecordSchema = Type.Object(
@@ -19,6 +20,8 @@ export const RequestRecordSchema = Type.Object(
 		]),
 		goal: nonEmpty,
 		base: Type.Optional(nonEmpty),
+		sourceDesignRunId: Type.Optional(uuid),
+		designFeedback: Type.Optional(nonEmpty),
 		unslopSource: Type.Optional(
 			Type.Union([
 				Type.Object({ kind: Type.Literal("text"), text: nonEmpty }, { additionalProperties: false }),

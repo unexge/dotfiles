@@ -16,7 +16,8 @@ import { resolvePolicy } from "../src/policy/catalog.ts";
 import { canonicalDigest } from "../src/policy/canonical-json.ts";
 import { decodeMachinePolicy, decodeProjectPolicy } from "../src/policy/schemas.ts";
 import { approvedDesignIdFor, type ApprovedDesignRecord } from "../src/review/design.ts";
-import { reviewSubjectDigest } from "../src/review/subjects.ts";
+import type { DesignHandoff } from "../src/review/design-handoff.ts";
+import { noBehaviorContractDigest, reviewSubjectDigest } from "../src/review/subjects.ts";
 import { RunStore } from "../src/store/run-store.ts";
 import type { GitRepository } from "../src/vcs/types.ts";
 import { observationSubjectDigest } from "../src/subject/content.ts";
@@ -61,12 +62,16 @@ function designReport(status: "ok" | "blocked" | "failed" = "ok") {
 		summary: "design",
 		citations: [],
 		usage: "caller usage",
+		constraints: ["constraint"],
+		decisions: [{ decision: "decision", rationale: "rationale" }],
 		dataShape: "data shape",
 		interfaces: ["interface"],
 		modules: ["module"],
 		invariants: ["invariant"],
+		alternatives: [],
 		tradeoffs: [],
 		verification: ["verification"],
+		openQuestions: [],
 		testSelectors: [{ selectorId: "rust-path", value: "tests/behavior.rs" }],
 	};
 }
@@ -161,7 +166,7 @@ async function fixture() {
 	} as unknown as AgentGateway;
 	const catalog = await TrustedCommandCatalog.build(resolved, root);
 	let approvalMode: "approved" | "changes" | "blocked" = "approved";
-	const approve = vi.fn(async (input: { design: string }) => {
+	const approve = vi.fn(async (input: { design: string; sourceDesign?: { runId: string; approvedDesignId: string; artifactDigest: string } }) => {
 		if (approvalMode === "blocked") {
 			return { status: "Blocked" as const, diagnostics: [{ cause: "provider_failure" as const, retryable: true, detail: "down" }] };
 		}
@@ -192,6 +197,7 @@ async function fixture() {
 		const panelDigest = "e".repeat(64);
 		return {
 			status: "Approved" as const,
+			findings: [],
 			record: {
 				schemaVersion: 1 as const,
 				approvedDesignId: approvedDesignIdFor({
@@ -199,14 +205,16 @@ async function fixture() {
 					panelArtifactDigest: panelDigest,
 					designDigest,
 					behaviorDigest: contract.id,
+					...(input.sourceDesign ? { sourceDesignDigest: canonicalDigest(input.sourceDesign) } : {}),
 				}),
 				caller: "build" as const,
 				reviewSubject,
 				reviewSubjectDigest: reviewDigest,
-				design: { artifactPath: "approved/design.bin", artifactDigest: designDigest },
+				design: { artifactPath: "approved/design.json", artifactDigest: designDigest },
 				behavior: { kind: "contract" as const, digest: contract.id, contract, artifactPath: "approved/behavior.json", artifactDigest: "c".repeat(64) },
 				panel: { recordPath: "reviews/record", recordDigest: "d".repeat(64), artifactPath: "reviews/panel", artifactDigest: panelDigest },
 				approvedAt: "2026-08-25T00:00:02.000Z",
+				...(input.sourceDesign ? { sourceDesign: input.sourceDesign } : {}),
 			},
 		};
 	});
@@ -295,7 +303,49 @@ async function fixture() {
 
 type Qualifier = import("../src/application/qualify-and-commit.ts").QualifyAndCommit;
 
-async function run(values: Awaited<ReturnType<typeof fixture>>) {
+async function approvedSource(
+	values: Awaited<ReturnType<typeof fixture>>,
+	drift = false,
+): Promise<DesignHandoff> {
+	const sourceReport = designReport();
+	const sourceDigest = createHash("sha256").update(JSON.stringify(sourceReport)).digest("hex");
+	const current = (await values.trees.captureObservation()).observation;
+	const sourceObservation = drift ? { ...current, workingDigest: "0".repeat(64) } : current;
+	return {
+		runId: randomUUID(),
+		goal: "Build the feature",
+		design: sourceReport,
+		designDigest: sourceDigest,
+		findings: [],
+		approvedDesign: {
+			schemaVersion: 1,
+			approvedDesignId: "9".repeat(64),
+			caller: "design",
+			reviewSubject: {
+				schemaVersion: 1,
+				kind: "standalone-design",
+				observation: sourceObservation,
+				designDigest: sourceDigest,
+				behaviorContractDigest: noBehaviorContractDigest,
+			},
+			reviewSubjectDigest: "8".repeat(64),
+			design: { artifactPath: "approved/design.json", artifactDigest: sourceDigest },
+			behavior: { kind: "none", digest: noBehaviorContractDigest },
+			panel: {
+				recordPath: "reviews/record.json",
+				recordDigest: "7".repeat(64),
+				artifactPath: "reviews/panel.json",
+				artifactDigest: "6".repeat(64),
+			},
+			approvedAt: "2026-08-25T00:00:01.000Z",
+		},
+	};
+}
+
+async function run(
+	values: Awaited<ReturnType<typeof fixture>>,
+	options: { sourceDesign?: DesignHandoff; designFeedback?: string } = {},
+) {
 	return runBuildWorkflow({
 		origin: userOriginFromRegisteredCommand("Build the feature"),
 		policy: values.resolved,
@@ -314,6 +364,7 @@ async function run(values: Awaited<ReturnType<typeof fixture>>) {
 		checkpointedAt: "2026-08-25T00:00:03.000Z",
 		authorizedAt: "2026-08-25T00:00:04.000Z",
 		completedAt: "2026-08-25T00:00:05.000Z",
+		...options,
 	});
 }
 
@@ -322,6 +373,30 @@ afterEach(async () => {
 });
 
 describe("build workflow", () => {
+	it("derives the build design from an approved standalone design", async () => {
+		const values = await fixture();
+		const source = await approvedSource(values);
+		await run(values, { sourceDesign: source, designFeedback: "Keep the existing owner." });
+		expect(values.tasks.join("\n")).toContain("Keep the existing owner.");
+		expect(values.tasks.join("\n")).toContain("Preserve its accepted decisions");
+		expect(values.approve).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sourceDesign: {
+					runId: source.runId,
+					approvedDesignId: source.approvedDesign!.approvedDesignId,
+					artifactDigest: source.designDigest,
+				},
+			}),
+		);
+	});
+
+	it("blocks a build when the approved design observation drifted", async () => {
+		const values = await fixture();
+		const result = await run(values, { sourceDesign: await approvedSource(values, true) });
+		expect(result).toMatchObject({ status: "Blocked", reason: expect.stringContaining("drifted") });
+		expect(values.implementation.implement).not.toHaveBeenCalled();
+	});
+
 	it("returns the backend-owned committed outcome without double completion", async () => {
 		const values = await fixture();
 		const result = await run(values);

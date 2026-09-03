@@ -114,12 +114,16 @@ class HowRuntime extends WorkflowRuntime {
 			summary: "design",
 			citations: [],
 			usage: "usage",
+			constraints: ["constraint"],
+			decisions: [{ decision: "decision", rationale: "rationale" }],
 			dataShape: "shape",
 			interfaces: [],
 			modules: [],
 			invariants: ["invariant"],
+			alternatives: [],
 			tradeoffs: [],
 			verification: ["verify"],
+			openQuestions: [],
 			testSelectors: [],
 		};
 		return {
@@ -418,6 +422,50 @@ describe("workflow runtime", () => {
 			await fixture.cleanup();
 		}
 	}, 20_000);
+
+	it("resolves and persists design revision lineage", async () => {
+		const fixture = await createRepositoryFixture("git");
+		const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-runtime-design-lineage-"));
+		temporary.push(agentDir);
+		try {
+			await machinePolicy(agentDir);
+			const runtime = new HowRuntime(agentDir, runner, () => ({}) as ResolvedModels);
+			const original = await runtime.start(
+				{ workflow: "design", origin: userOriginFromRegisteredCommand("Design resumable uploads") },
+				context(fixture.root),
+			);
+			const revision = await runtime.start(
+				{
+					workflow: "design",
+					origin: userOriginFromRegisteredCommand("Keep the existing owner"),
+					sourceDesignRunId: original.ref.runId.slice(0, 8),
+					designFeedback: "Keep the existing owner",
+				},
+				context(fixture.root),
+			);
+			expect(revision.state).toMatchObject({
+				lifecycle: "Completed",
+				outcome: "DesignApproved",
+				goal: "Design resumable uploads",
+			});
+			const request = JSON.parse(
+				await readFile(join(revision.ref.directory, "artifacts/run/request.json"), "utf8"),
+			);
+			expect(request).toMatchObject({
+				sourceDesignRunId: original.ref.runId,
+				designFeedback: "Keep the existing owner",
+			});
+			const output = JSON.parse(
+				await readFile(join(revision.ref.directory, "artifacts/outputs/design.json"), "utf8"),
+			);
+			expect(output.source).toMatchObject({ runId: original.ref.runId, feedback: "Keep the existing owner" });
+			expect(await readFile(join(revision.ref.directory, "artifacts/outputs/design.md"), "utf8")).toContain(
+				"## Revision",
+			);
+		} finally {
+			await fixture.cleanup();
+		}
+	}, 30_000);
 
 	it("routes every workflow through the real composition switch", async () => {
 		const fixture = await createRepositoryFixture("git");

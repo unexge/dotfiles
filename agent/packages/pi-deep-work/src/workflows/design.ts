@@ -9,6 +9,11 @@ import {
 import type { UserOrigin } from "../application/user-origin.ts";
 import { assertUserOrigin } from "../application/user-origin.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
+import {
+	renderDesignMarkdown,
+	type DesignHandoff,
+	type DesignLineage,
+} from "../review/design-handoff.ts";
 import type { CanonicalFinding, PanelDiagnostic } from "../review/panel.ts";
 import { digestFrozenArtifact, reviewSubjectDigest } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
@@ -35,6 +40,8 @@ interface DesignWorkflowInput {
 	concurrency: number;
 	approvedAt: string;
 	completedAt: string;
+	source?: DesignHandoff;
+	feedback?: string;
 }
 
 const candidatePerspectives = [
@@ -46,17 +53,31 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 	const artifactPath = "outputs/design.json";
 	try {
 		assertUserOrigin(input.origin);
+		if (Boolean(input.source) !== Boolean(input.feedback?.trim())) {
+			throw new Error("Design revision requires both a source design and operator feedback");
+		}
 		input.approver.assertRun(input.gateway, input.store, input.ref);
 		const observed = await ObservationSession.begin(input.gateway, input.trees, input.authority);
 		// BackendTreeService deterministically derives tree identity from bytes and metadata cryptographically bound by this observation.
 		// The workflow's snapshot recaptures remain the final enforcement around the observation-only approver boundary.
 		const initialObservationDigest = observationSubjectDigest(observed.subject.observation);
+		const sourceContext = input.source
+			? [
+					"Revise this prior design:",
+					canonicalJson(input.source.design),
+					"Prior review findings:",
+					canonicalJson(input.source.findings),
+					"Operator feedback:",
+					input.feedback!,
+				].join("\n\n")
+			: undefined;
 		const candidates = await observed.runMany(
 			candidatePerspectives.map((perspective, index) => ({
 				kind: "design" as const,
 				label: `design candidate ${index + 1}`,
 				task: [
 					`Design a solution for the original operator goal: ${input.origin.goal}`,
+					...(sourceContext ? [sourceContext] : []),
 					perspective,
 					"Read relevant repository code. Do not modify files.",
 				].join("\n\n"),
@@ -72,6 +93,7 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 			label: "synthesize design",
 			task: [
 				`Synthesize one coherent design for the original operator goal: ${input.origin.goal}`,
+				...(sourceContext ? [sourceContext] : []),
 				"Use the strongest compatible ideas from these two validated candidates. Do not average incompatible choices.",
 				canonicalJson(candidates.map((candidate) => candidate.report.value)),
 			].join("\n\n"),
@@ -116,7 +138,7 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 			}
 			outcome = "DesignApproved";
 			approvedDesignId = approval.record.approvedDesignId;
-			findings = [];
+			findings = approval.findings;
 			approvalArtifact = {
 				approvedDesignId,
 				recordPath: `approved-designs/${approvedDesignId}/record.json`,
@@ -127,16 +149,48 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 			};
 		}
 		await observed.assertCurrent();
+		const source: DesignLineage | undefined = input.source
+			? {
+					runId: input.source.runId,
+					...(input.source.approvedDesign
+						? { approvedDesignId: input.source.approvedDesign.approvedDesignId }
+						: {}),
+					artifactDigest: input.source.designDigest,
+					feedback: input.feedback!,
+				}
+			: undefined;
+		const markdown = renderDesignMarkdown({
+			runId: input.ref.runId,
+			goal: input.origin.goal,
+			design: synthesis.report.value,
+			designDigest,
+			outcome,
+			findings,
+			...(approvedDesignId ? { approvedDesignId } : {}),
+			...(source ? { source } : {}),
+		});
+		const markdownArtifact = await input.store.writeArtifact(input.ref, "outputs/design.md", markdown);
+		await observed.assertCurrent();
 		const artifact = {
 			schemaVersion: 1,
 			proposedOutcome: outcome,
 			authoritative: false,
 			lifecycleAuthority: "state.json",
 			goal: input.origin.goal,
+			output: [
+				markdown,
+				`Design run: ${input.ref.runId}`,
+				`Markdown: ${markdownArtifact.path}`,
+				outcome === "DesignApproved"
+					? `Build: /deep build --design ${input.ref.runId.slice(0, 8)}`
+					: `Revise: /deep design --from ${input.ref.runId.slice(0, 8)} <feedback>`,
+			].join("\n"),
+			...(source ? { source } : {}),
 			observationSubjectDigest: initialObservationDigest,
 			designDigest,
 			design: synthesis.report.value,
 			candidates: candidates.map((candidate) => candidate.report.value),
+			findings,
 			approval: approvalArtifact,
 		};
 		await input.store.writeArtifact(input.ref, artifactPath, Buffer.from(canonicalJson(artifact)));

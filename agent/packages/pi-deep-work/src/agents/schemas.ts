@@ -68,16 +68,36 @@ export const ExplorationReportSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const DesignDecisionSchema = Type.Object(
+	{
+		decision: nonEmpty,
+		rationale: nonEmpty,
+	},
+	{ additionalProperties: false },
+);
+
+const DesignAlternativeSchema = Type.Object(
+	{
+		option: nonEmpty,
+		rejectedBecause: nonEmpty,
+	},
+	{ additionalProperties: false },
+);
+
 export const DesignReportSchema = Type.Object(
 	{
 		...common,
 		usage: nonEmpty,
+		constraints: Type.Array(nonEmpty),
+		decisions: Type.Array(DesignDecisionSchema, { minItems: 1 }),
 		dataShape: nonEmpty,
 		interfaces: Type.Array(nonEmpty),
 		modules: Type.Array(nonEmpty),
 		invariants: Type.Array(nonEmpty, { minItems: 1 }),
+		alternatives: Type.Array(DesignAlternativeSchema),
 		tradeoffs: Type.Array(nonEmpty),
 		verification: Type.Array(nonEmpty, { minItems: 1 }),
+		openQuestions: Type.Array(nonEmpty),
 		testSelectors: Type.Array(SelectorProposalSchema),
 	},
 	{ additionalProperties: false },

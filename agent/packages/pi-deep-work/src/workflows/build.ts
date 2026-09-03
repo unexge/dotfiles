@@ -21,6 +21,7 @@ import { backendSnapshotDigest, type BackendTreeService } from "../gates/tree-ba
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ResolvedPolicy } from "../policy/catalog.ts";
 import type { CanonicalFinding, PanelDiagnostic } from "../review/panel.ts";
+import type { DesignHandoff } from "../review/design-handoff.ts";
 import { digestFrozenArtifact, reviewSubjectDigest } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 import { observationSubjectDigest } from "../subject/content.ts";
@@ -60,6 +61,8 @@ interface BuildWorkflowInput {
 	checkpointedAt: string;
 	authorizedAt: string;
 	completedAt: string;
+	sourceDesign?: DesignHandoff;
+	designFeedback?: string;
 }
 
 export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<BuildWorkflowResult> {
@@ -81,15 +84,41 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 		);
 		const baseline = await input.preflight.begin();
 		assertWriteBaseline(baseline);
+		const sourceApprovedDesign = input.sourceDesign?.approvedDesign;
+		if (input.sourceDesign && !sourceApprovedDesign) {
+			throw new Error("Build source is not an approved standalone design");
+		}
+		const sourceIdentity = input.sourceDesign && sourceApprovedDesign
+			? {
+					runId: input.sourceDesign.runId,
+					approvedDesignId: sourceApprovedDesign.approvedDesignId,
+					artifactDigest: input.sourceDesign.designDigest,
+				}
+			: undefined;
 		const observed = await ObservationSession.begin(input.gateway, input.trees, input.authority);
 		const initialObservationDigest = observationSubjectDigest(observed.subject.observation);
 		if (initialObservationDigest !== observationSubjectDigest(baseline.observation)) {
 			throw new SubjectDriftError(observationSubjectDigest(baseline.observation), initialObservationDigest);
 		}
+		if (sourceApprovedDesign) {
+			const sourceDigest = observationSubjectDigest(sourceApprovedDesign.reviewSubject.observation);
+			if (sourceDigest !== initialObservationDigest) throw new SubjectDriftError(sourceDigest, initialObservationDigest);
+		}
+		const sourceContext = input.sourceDesign
+			? [
+					`Use approved standalone design ${sourceIdentity!.approvedDesignId} as the design basis:`,
+					canonicalJson(input.sourceDesign.design),
+					...(input.designFeedback ? ["Additional operator constraints:", input.designFeedback] : []),
+					"Preserve its accepted decisions. Add only build-specific detail and trusted behavior selectors.",
+				].join("\n\n")
+			: undefined;
 		const frame = await observed.run({
 			kind: "plan",
 			label: "frame build",
-			task: `Frame the approved-build problem, success criteria, and smallest implementation steps for:\n\n${input.origin.goal}`,
+			task: [
+				`Frame the approved-build problem, success criteria, and smallest implementation steps for:\n\n${input.origin.goal}`,
+				...(sourceContext ? [sourceContext] : []),
+			].join("\n\n"),
 		});
 		if (frame.report.value.status !== "ok") throw new BuildAgentStatusError("frame", frame.report.value.status);
 		const designResult = await observed.run({
@@ -97,6 +126,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			label: "design build",
 			task: [
 				`Design the implementation for the operator goal: ${input.origin.goal}`,
+				...(sourceContext ? [sourceContext] : []),
 				"Use this validated frame:",
 				canonicalJson(frame.report.value),
 				"Trusted selector choices:",
@@ -117,6 +147,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			expectedObservationDigest: initialObservationDigest,
 			selectorProposals: designResult.report.value.testSelectors,
 			approvedAt: input.approvedAt,
+			...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
 		});
 		if (approval.status === "Blocked") {
 			await observed.assertCurrent();
@@ -134,6 +165,9 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				authoritative: false,
 				lifecycleAuthority: "state.json",
 				goal: input.origin.goal,
+				...(sourceIdentity
+					? { sourceDesignRunId: sourceIdentity.runId, sourceApprovedDesignId: sourceIdentity.approvedDesignId }
+					: {}),
 				designDigest,
 				design: designResult.report.value,
 				reviewSubjectDigest: approval.subjectDigest,
@@ -148,7 +182,8 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 		if (
 			approval.record.caller !== "build" ||
 			approval.record.behavior.kind !== "contract" ||
-			approval.record.design.artifactDigest !== designDigest
+			approval.record.design.artifactDigest !== designDigest ||
+			canonicalJson(approval.record.sourceDesign ?? null) !== canonicalJson(sourceIdentity ?? null)
 		) {
 			throw new Error("Approved build design contradicts the synthesized design or behavior contract");
 		}
@@ -209,6 +244,9 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			authoritative: false,
 			lifecycleAuthority: "state.json",
 			goal: input.origin.goal,
+			...(sourceIdentity
+				? { sourceDesignRunId: sourceIdentity.runId, sourceApprovedDesignId: sourceIdentity.approvedDesignId }
+				: {}),
 			approvedDesignId: approval.record.approvedDesignId,
 			implementationCheckpoint: implemented.checkpoint,
 			observationSubjectDigest: observationSubjectDigest(current.observation),

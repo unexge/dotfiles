@@ -23,12 +23,16 @@ describe("agent report schemas", () => {
 			decodeAgentReport("design", {
 				...common,
 				usage: "caller usage",
+				constraints: ["constraint"],
+				decisions: [{ decision: "decision", rationale: "rationale" }],
 				dataShape: "data shape",
 				interfaces: [],
 				modules: [],
 				invariants: ["invariant"],
+				alternatives: [],
 				tradeoffs: [],
 				verification: ["verification"],
+				openQuestions: [],
 				testSelectors: [{ selectorId: "rust.test", value: "tests/value.rs" }],
 			}),
 		).toMatchObject({ testSelectors: [{ selectorId: "rust.test" }] });

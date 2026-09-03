@@ -107,7 +107,7 @@ function approved(requiredKeys = ["key.one", "key.two"]): ApprovedDesignRecord {
 		caller: "build",
 		reviewSubject,
 		reviewSubjectDigest: subjectDigest,
-		design: { artifactPath: "approved/design.bin", artifactDigest: reviewSubject.designDigest },
+		design: { artifactPath: "approved/design.json", artifactDigest: reviewSubject.designDigest },
 		behavior: {
 			kind: "contract",
 			digest: contract.id,
