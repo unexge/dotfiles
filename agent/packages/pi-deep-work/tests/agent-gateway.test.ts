@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import {
+	fauxAssistantMessage,
+	fauxProvider,
+	fauxText,
+	fauxThinking,
+	fauxToolCall,
+} from "@earendil-works/pi-ai/providers/faux";
 import { defineTool, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,6 +19,7 @@ import {
 	AgentGateway,
 	AgentGatewayError,
 	agentJobPolicy,
+	type AgentProgress,
 	type WorkspaceAgentTools,
 } from "../src/agents/gateway.ts";
 import { PortableLeaseManager } from "../src/lease/repository-lease.ts";
@@ -175,6 +182,59 @@ describe("AgentGateway", () => {
 			model: `${values.faux.provider.id}/gpt-5.6-sol`,
 			report: { source: "untrusted-agent", value: { summary: "planned" } },
 		});
+	});
+
+	it("streams labeled child-session output and tool progress to the coordinator", async () => {
+		const values = await fixture();
+		values.faux.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxThinking("Inspect the repository"),
+					fauxText("Reading the relevant file."),
+					fauxToolCall("workspace_read", {}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxToolCall("deep_submit", planReport), { stopReason: "toolUse" }),
+		]);
+		const progress: AgentProgress[] = [];
+		let rejectedPresentationUpdate = false;
+		const gateway = new AgentGateway(
+			authority(),
+			values.root,
+			values.models,
+			workspaceTools(),
+			values.root,
+			values.runtime,
+			(event) => {
+				progress.push(event);
+				if (!rejectedPresentationUpdate && event.event.type === "message_update") {
+					rejectedPresentationUpdate = true;
+					throw new Error("presentation failed");
+				}
+			},
+		);
+		await gateway.run({ kind: "plan", label: "frame request", task: "Plan it" });
+
+		expect(rejectedPresentationUpdate).toBe(true);
+		expect(progress.every((event) => event.label === "frame request" && event.role === "planner")).toBe(true);
+		expect(progress.every((event) => event.model === `${values.faux.provider.id}/gpt-5.6-sol`)).toBe(true);
+		expect(
+			progress.some(
+				({ event }) =>
+					event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta",
+			),
+		).toBe(true);
+		expect(
+			progress.some(
+				({ event }) => event.type === "message_end" && event.message.role === "assistant",
+			),
+		).toBe(true);
+		expect(
+			progress.some(
+				({ event }) => event.type === "tool_execution_end" && event.toolName === "workspace_read" && !event.isError,
+			),
+		).toBe(true);
 	});
 
 	it("gives only implement and repair jobs mutation tools", async () => {

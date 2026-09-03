@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { userOriginFromRegisteredCommand } from "../src/application/user-origin.ts";
+import type { AgentProgress } from "../src/agents/gateway.ts";
 import { parseCommand, CommandParseError } from "../src/service/command.ts";
+import { deepWorkAgentEntryType } from "../src/service/presentation.ts";
 import { DeepWorkService } from "../src/service/service.ts";
 import {
 	WorkflowRuntime,
@@ -54,6 +56,7 @@ function context() {
 
 class DeferredRuntime extends WorkflowRuntime {
 	started?: string;
+	progress?: AgentProgress;
 	delayBeforeStart = false;
 	private releaseDelay?: () => void;
 
@@ -87,6 +90,7 @@ class DeferredRuntime extends WorkflowRuntime {
 		);
 		this.started = ref.runId;
 		hooks.onStarted?.(ref);
+		if (this.progress) hooks.onProgress?.(this.progress);
 		for (let attempt = 0; attempt < 100; attempt++) {
 			if ((await this.store.controls(ref)).revision > 0) return { ref, state: await this.store.load(ref) };
 			await new Promise((resolve) => setTimeout(resolve, 5));
@@ -260,6 +264,42 @@ describe("command service controls", () => {
 			await firstFixture.cleanup();
 			await secondFixture.cleanup();
 		}
+	});
+
+	it("bridges runtime progress into display-only transcript entries", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-command-progress-"));
+		temporary.push(agentDir);
+		const runtime = new DeferredRuntime(agentDir);
+		runtime.progress = {
+			kind: "plan",
+			label: "frame request",
+			role: "planner",
+			model: "test/model",
+			event: { type: "agent_start" },
+		};
+		const entries: Array<{ customType: string; data: unknown }> = [];
+		const service = new DeepWorkService(
+			{
+				sendMessage: () => undefined,
+				appendEntry: (customType: string, data: unknown) => entries.push({ customType, data }),
+			} as unknown as ExtensionAPI,
+			runtime,
+		);
+		const values = context();
+		const origin = userOriginFromRegisteredCommand("visible progress");
+		const running = service.execute({ kind: "start", workflow: "how", goal: "visible progress" }, origin, values.ctx);
+		while (!runtime.started) await new Promise((resolve) => setTimeout(resolve, 5));
+		await service.execute({ kind: "cancel", runId: runtime.started }, origin, values.ctx);
+		await running;
+
+		expect(entries).toContainEqual({
+			customType: deepWorkAgentEntryType,
+			data: expect.objectContaining({
+				type: "lifecycle",
+				state: "started",
+				job: expect.objectContaining({ label: "frame request", role: "planner" }),
+			}),
+		});
 	});
 
 	it("shutdown fences and pauses a start still waiting before onStarted", async () => {

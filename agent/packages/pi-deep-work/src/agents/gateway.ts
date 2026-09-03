@@ -6,6 +6,7 @@ import {
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
+	type AgentSessionEvent,
 	type ToolDefinition,
 	createAgentSession,
 } from "@earendil-works/pi-coding-agent";
@@ -88,10 +89,22 @@ export type AgentJob = NonReviewAgentJob | ReviewAgentJob;
 type MutationAgentJob = Extract<AgentJob, { kind: MutationJobKind }>;
 
 export interface AgentProgress {
+	kind: AgentJobKind;
+	label: string;
 	role: AgentRole;
-	type: string;
-	toolName?: string;
-	isError?: boolean;
+	model: string;
+	event: AgentSessionEvent;
+}
+
+export type AgentProgressListener = (progress: AgentProgress) => void;
+
+function notifyProgress(listener: AgentProgressListener | undefined, progress: AgentProgress): void {
+	if (!listener) return;
+	try {
+		listener(progress);
+	} catch {
+		// Presentation failures cannot alter delegated session execution or evidence.
+	}
 }
 
 export interface AgentUsage {
@@ -214,6 +227,7 @@ export class AgentGateway {
 		private readonly workspaceTools: WorkspaceAgentTools,
 		agentDir = getAgentDir(),
 		modelRuntime?: ModelRuntime,
+		private readonly progressListener?: AgentProgressListener,
 	) {
 		this.agentDir = agentDir;
 		assertWorkspaceTools(workspaceTools);
@@ -233,7 +247,15 @@ export class AgentGateway {
 	}
 
 	private clone(authority: RunAuthority, workspaceTools: WorkspaceAgentTools): AgentGateway {
-		const clone = new AgentGateway(authority, this.repositoryRoot, this.models, workspaceTools, this.agentDir);
+		const clone = new AgentGateway(
+			authority,
+			this.repositoryRoot,
+			this.models,
+			workspaceTools,
+			this.agentDir,
+			undefined,
+			this.progressListener,
+		);
 		// Clones share the authenticated runtime without binding first-time creation to a throwaway signal.
 		clone.modelRuntimePromise = this.modelRuntimePromise;
 		return clone;
@@ -389,15 +411,17 @@ export class AgentGateway {
 			throw error;
 		}
 		const { session } = sessionResult;
+		const modelName = `${model.provider}/${model.id}`;
 		const unsubscribe = session.subscribe((event) => {
-			job.onProgress?.({
+			const progress = {
+				kind: job.kind,
+				label: job.label,
 				role: policy.role,
-				type: event.type,
-				...(event.type === "tool_execution_start" || event.type === "tool_execution_end"
-					? { toolName: event.toolName }
-					: {}),
-				...(event.type === "tool_execution_end" ? { isError: event.isError } : {}),
-			});
+				model: modelName,
+				event,
+			} satisfies AgentProgress;
+			notifyProgress(this.progressListener, progress);
+			notifyProgress(job.onProgress, progress);
 		});
 		let abortPromise: Promise<void> | undefined;
 		const abort = () => {
@@ -419,7 +443,7 @@ export class AgentGateway {
 			return {
 				kind: job.kind,
 				role: policy.role,
-				model: `${model.provider}/${model.id}`,
+				model: modelName,
 				turns,
 				usage,
 				report: { source: "untrusted-agent", value: report },

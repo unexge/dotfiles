@@ -4,7 +4,7 @@ import {
 	getAgentDir,
 	type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { AgentGateway } from "../agents/gateway.ts";
+import { AgentGateway, type AgentProgressListener } from "../agents/gateway.ts";
 import { DesignApprover } from "../application/approve-design.ts";
 import { WritePreflight } from "../application/begin-write.ts";
 import { ImplementationAgent } from "../application/implementation-agent.ts";
@@ -90,6 +90,7 @@ export interface StartRequest {
 
 export interface StartHooks {
 	onStarted?(ref: RunRef): void;
+	onProgress?: AgentProgressListener;
 }
 
 export interface RecoveryResult {
@@ -174,7 +175,7 @@ export class WorkflowRuntime {
 		}
 		try {
 			hooks.onStarted?.(ref);
-			await this.dispatch(request, ctx, repository, policy, models, ref, authority);
+			await this.dispatch(request, ctx, repository, policy, models, ref, authority, hooks.onProgress);
 		} catch (error) {
 			if (error instanceof ControlAcceptedError || error instanceof RunAuthorityClosedError) {
 				return { ref, state: await this.store.load(ref) };
@@ -307,7 +308,7 @@ export class WorkflowRuntime {
 		}
 		try {
 			hooks.onStarted?.(ref);
-			await this.dispatch(request, ctx, repository, policy, models, ref, authority);
+			await this.dispatch(request, ctx, repository, policy, models, ref, authority, hooks.onProgress);
 		} catch (error) {
 			if (error instanceof ControlAcceptedError || error instanceof RunAuthorityClosedError) {
 				return { ref, state: await this.store.load(ref) };
@@ -403,6 +404,7 @@ export class WorkflowRuntime {
 				repository,
 				models,
 				createWorkspaceTools(boundary, new MutationPhase("read-only-tools")),
+				hooks.onProgress,
 			);
 			const trees = new BackendTreeService(
 				authority,
@@ -622,8 +624,9 @@ export class WorkflowRuntime {
 		repository: DetectedRepository,
 		models: ReturnType<typeof resolveModels>,
 		tools: ReturnType<typeof createWorkspaceTools>,
+		onProgress?: AgentProgressListener,
 	): AgentGateway {
-		return new AgentGateway(authority, repository.root, models, tools, this.agentDir);
+		return new AgentGateway(authority, repository.root, models, tools, this.agentDir, undefined, onProgress);
 	}
 
 	protected async dispatch(
@@ -634,10 +637,11 @@ export class WorkflowRuntime {
 		models: ReturnType<typeof resolveModels>,
 		ref: RunRef,
 		authority: RunAuthority,
+		onProgress?: AgentProgressListener,
 	): Promise<void> {
 		const boundary = await WorkspaceBoundary.open(repository, this.runner);
 		const baseTools = createWorkspaceTools(boundary, new MutationPhase("read-only-tools"));
-		const gateway = this.createGateway(authority, repository, models, baseTools);
+		const gateway = this.createGateway(authority, repository, models, baseTools, onProgress);
 		const trees = new BackendTreeService(authority, repository, policy.digest, this.runner, join(ref.directory, "scratch", "trees"));
 		const catalog = await TrustedCommandCatalog.build(policy, repository.root);
 		const panel = new ReviewPanel(gateway, this.store, ref, policy);

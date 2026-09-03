@@ -13,6 +13,10 @@ import { VcsDetectionError } from "../vcs/types.ts";
 import { loadRunRecords } from "./records.ts";
 import { WorkflowRuntime, type StartRequest } from "./runtime.ts";
 import type { ParsedCommand } from "./command.ts";
+import {
+	DeepWorkRunPresentation,
+	deepWorkRunEntryType,
+} from "./presentation.ts";
 
 interface ActiveRun {
 	ref: RunRef;
@@ -93,6 +97,7 @@ export class DeepWorkService {
 				: {}),
 		};
 		let ref: RunRef | undefined;
+		let presentation: DeepWorkRunPresentation | undefined;
 		let resolveCompletion!: () => void;
 		let rejectCompletion!: (error: unknown) => void;
 		const completion = new Promise<void>((resolve, reject) => {
@@ -106,20 +111,17 @@ export class DeepWorkService {
 					onStarted: (startedRef) => {
 						ref = startedRef;
 						this.active.set(startedRef.runId, { ref: startedRef, promise: completion });
-						this.renderActive(startedRef, ctx);
+						presentation = this.renderActive(startedRef, ctx);
 						if (this.shuttingDown) {
 							void this.runtime.store.appendControl(startedRef, "Pause", new Date().toISOString()).catch(() => undefined);
 						}
 					},
+					onProgress: (progress) => presentation?.handle(progress),
 				});
 				await this.publish(result.ref, result.state, ctx);
 			} finally {
-				if (ref) {
-					this.active.delete(ref.runId);
-					const key = this.uiKey(ref);
-					ctx.ui.setStatus(key, undefined);
-					ctx.ui.setWidget(key, undefined);
-				}
+				if (ref) this.active.delete(ref.runId);
+				presentation?.clear();
 			}
 		})();
 		operation.then(resolveCompletion, rejectCompletion);
@@ -134,6 +136,7 @@ export class DeepWorkService {
 		if (this.shuttingDown) throw new Error("Deep-work is shutting down and cannot resume a run");
 		const ref = await this.runtime.store.find(runId);
 		if (this.active.has(ref.runId)) throw new Error(`run ${ref.runId.slice(0, 8)} is already active`);
+		let presentation: DeepWorkRunPresentation | undefined;
 		let resolveCompletion!: () => void;
 		let rejectCompletion!: (error: unknown) => void;
 		const completion = new Promise<void>((resolve, reject) => {
@@ -146,18 +149,17 @@ export class DeepWorkService {
 				const result = await this.runtime.resume(ref, origin, ctx, {
 					onStarted: (startedRef) => {
 						this.active.set(startedRef.runId, { ref: startedRef, promise: completion });
-						this.renderActive(startedRef, ctx);
+						presentation = this.renderActive(startedRef, ctx);
 						if (this.shuttingDown) {
 							void this.runtime.store.appendControl(startedRef, "Pause", new Date().toISOString()).catch(() => undefined);
 						}
 					},
+					onProgress: (progress) => presentation?.handle(progress),
 				});
 				await this.publish(result.ref, result.state, ctx);
 			} finally {
 				this.active.delete(ref.runId);
-				const key = this.uiKey(ref);
-				ctx.ui.setStatus(key, undefined);
-				ctx.ui.setWidget(key, undefined);
+				presentation?.clear();
 			}
 		})();
 		operation.then(resolveCompletion, rejectCompletion);
@@ -262,15 +264,10 @@ export class DeepWorkService {
 		return `available/${ref.runId.slice(0, 8)}`;
 	}
 
-	private renderActive(ref: RunRef, ctx: ExtensionCommandContext): void {
-		const key = this.uiKey(ref);
-		ctx.ui.setStatus(key, ctx.ui.theme.fg("accent", `deep ${ref.runId.slice(0, 8)} active`));
-		ctx.ui.setWidget(key, [`deep ${ref.runId.slice(0, 8)}  ${ref.backend}  Active`]);
-		this.pi.appendEntry("deep-work-run", { schemaVersion: 1, runId: ref.runId, backend: ref.backend });
-	}
-
-	private uiKey(ref: RunRef): string {
-		return `deep-work-${ref.runId}`;
+	private renderActive(ref: RunRef, ctx: ExtensionCommandContext): DeepWorkRunPresentation {
+		const presentation = new DeepWorkRunPresentation(this.pi, ref, ctx);
+		this.pi.appendEntry(deepWorkRunEntryType, { schemaVersion: 1, runId: ref.runId, backend: ref.backend });
+		return presentation;
 	}
 
 	private async control(kind: "Pause" | "Cancel", runId: string | undefined, ctx: ExtensionCommandContext): Promise<void> {

@@ -39,6 +39,8 @@ Try a read-only workflow:
 
 Only a command you enter as `/deep ...` can start or control a run. There is no automatic or sticky mode.
 
+While a run is active, the current delegated-agent output appears in a live widget and the footer identifies the active role and task. Finalized assistant messages, tool calls, and complete textual tool results remain in the Pi transcript as display-only entries; they are not added to the parent model's context. Delegated sessions remain contract-driven and cannot be steered from the editor.
+
 ## Commands
 
 | Command | Result |

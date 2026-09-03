@@ -10,10 +10,12 @@ function fixture() {
 	let shutdown: (() => Promise<void>) | undefined;
 	const execute = vi.fn(async (_command, origin) => assertUserOrigin(origin));
 	const registerTool = vi.fn();
+	const registerEntryRenderer = vi.fn();
 	const service = { execute, shutdown: vi.fn(async () => undefined) } as unknown as CommandExecutor;
 	const pi = {
 		registerCommand: (_name: string, value: typeof command) => (command = value),
 		registerTool,
+		registerEntryRenderer,
 		on: (_event: string, handler: () => Promise<void>) => (shutdown = handler),
 	} as unknown as ExtensionAPI;
 	registerDeepWork(pi, service);
@@ -21,7 +23,16 @@ function fixture() {
 	const ctx = {
 		ui: { notify: (message: string, level: string) => notifications.push({ message, level }) },
 	} as unknown as ExtensionCommandContext;
-	return { command: command!, shutdown: shutdown!, service, execute, registerTool, notifications, ctx };
+	return {
+		command: command!,
+		shutdown: shutdown!,
+		service,
+		execute,
+		registerTool,
+		registerEntryRenderer,
+		notifications,
+		ctx,
+	};
 }
 
 describe("installed extension boundary", () => {
@@ -31,6 +42,7 @@ describe("installed extension boundary", () => {
 		await values.command.handler("cancel 12345678", values.ctx);
 		expect(values.execute).toHaveBeenCalledTimes(2);
 		expect(values.registerTool).not.toHaveBeenCalled();
+		expect(values.registerEntryRenderer).toHaveBeenCalledTimes(2);
 		expect(values.execute.mock.calls[0][0]).toEqual({ kind: "start", workflow: "how", goal: "explain this" });
 		expect(values.execute.mock.calls[1][0]).toEqual({ kind: "cancel", runId: "12345678" });
 		await values.shutdown();

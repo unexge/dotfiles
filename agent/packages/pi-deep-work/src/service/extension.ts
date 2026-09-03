@@ -8,6 +8,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { userOriginFromRegisteredCommand } from "../application/user-origin.ts";
 import { configurePolicy } from "../policy/config-command.ts";
 import { parseCommand, commandNames, usage, type ParsedCommand } from "./command.ts";
+import { registerDeepWorkPresentation } from "./presentation.ts";
 import { DeepWorkService } from "./service.ts";
 
 export interface CommandExecutor {
@@ -24,6 +25,7 @@ export function commandCompletions(prefix: string): AutocompleteItem[] | null {
 }
 
 export function registerDeepWork(pi: ExtensionAPI, injected?: CommandExecutor): void {
+	registerDeepWorkPresentation(pi);
 	const service = injected ?? new DeepWorkService(pi);
 	pi.registerCommand("deep", {
 		description: "Run explicit local high-rigor engineering workflows",
