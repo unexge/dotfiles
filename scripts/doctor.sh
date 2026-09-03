@@ -10,7 +10,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew
 missing=0
 for command_name in \
   bat bazelisk brew btop cargo cargo-binstall crit delta dex difft dust emacs htop \
-  hunkdiff hx jj jq node npm nu pi rg ruby rust-code-analysis-cli rustup uv \
+  hunkdiff hx jj jq mosh node npm nu pi rg ruby rust-code-analysis-cli rustup uv \
   zellij zig; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "[ERROR] Missing command: $command_name" >&2

@@ -76,6 +76,26 @@ agent/packages/pi-deep-work Local high-rigor Pi workflows and skills
 
 Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope.
 
+## Remote Linux access
+
+Run `dot sync` on both machines so [Mosh](https://mosh.org/) and Zellij are available. Mosh uses SSH to authenticate and then connects over UDP, so allow UDP ports `60000-61000` from trusted client networks to the Linux box.
+
+Define a machine-local SSH alias in `~/.ssh/config`:
+
+```sshconfig
+Host remotebox
+    HostName linux.example.com
+    User your-user
+```
+
+Add a matching command to the untracked Nushell `local.nu`:
+
+```nu
+alias remotebox = mosh -- remotebox /home/linuxbrew/.linuxbrew/bin/zellij attach --create
+```
+
+The absolute path avoids depending on the non-interactive remote `PATH`; replace it with the output of `command -v zellij` on the Linux box when Homebrew uses a different prefix. `zellij attach --create` attaches to an existing remote session or creates one when needed.
+
 ## Local and work configuration
 
 Do not commit credentials, hostnames, account identifiers, or employer-specific tools here.
