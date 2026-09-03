@@ -85,7 +85,9 @@ install_rust_packages() {
   while IFS= read -r package || [[ -n "$package" ]]; do
     [[ -z "$package" || "$package" == \#* ]] && continue
     info "Installing Cargo package: $package"
-    cargo binstall --no-confirm --force "$package"
+    if ! cargo binstall --no-confirm --force "$package"; then
+      echo "[WARN] Failed to install Cargo package: $package; continuing" >&2
+    fi
   done < "$REPO_ROOT/packages/cargo.txt"
 }
 
