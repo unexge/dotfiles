@@ -13,6 +13,7 @@ The package has one installed execution graph. All package tests live under `tes
 ## Policy and agents
 
 - Strict machine/project TypeBox schemas, unknown-key rejection, canonical digest, project trust boundary.
+- Canonical-root project policy initialization with a prompted mainline and no overwrite of existing policy.
 - Exact authenticated orchestrator, work, and complete reviewer bindings with model-supported thinking levels; legacy model policy migration.
 - Fixed role/model/tool map; only implement/repair receive repository mutation tools; no model bash.
 - Structured report decoding, isolated child resources, bounded concurrency, model cancellation.

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { assertUserOrigin } from "../src/application/user-origin.ts";
 import { registerDeepWork, commandCompletions, type CommandExecutor } from "../src/service/extension.ts";
+import { createRepositoryFixture } from "./helpers/repositories.ts";
 
 function fixture() {
 	let command: { handler: (raw: string, ctx: ExtensionCommandContext) => Promise<void> } | undefined;
@@ -67,6 +68,35 @@ describe("installed extension boundary", () => {
 		expect(values.notifications).toEqual([{ level: "error", message: "broken metadata" }]);
 	});
 
+	it("routes /deep init through the installed command without entering the workflow service", async () => {
+		const repository = await createRepositoryFixture("git");
+		try {
+			const values = fixture();
+			const input = vi.fn().mockResolvedValue("");
+			const ctx = {
+				cwd: repository.root,
+				hasUI: true,
+				isProjectTrusted: () => true,
+				ui: {
+					input,
+					notify: (message: string, level: string) => values.notifications.push({ message, level }),
+				},
+			} as unknown as ExtensionCommandContext;
+
+			await values.command.handler("init", ctx);
+			expect(values.execute).not.toHaveBeenCalled();
+			expect(input).toHaveBeenCalledWith("Mainline branch or bookmark", "main");
+			expect(values.notifications).toEqual([
+				expect.objectContaining({
+					level: "info",
+					message: expect.stringContaining("with mainline main"),
+				}),
+			]);
+		} finally {
+			await repository.cleanup();
+		}
+	});
+
 	it("publishes no LLM-callable prompt or tool surface", async () => {
 		const manifest = JSON.parse(await readFile(join(import.meta.dirname, "..", "package.json"), "utf8"));
 		expect(manifest.pi.extensions).toEqual(["./extensions/deep-work/index.ts"]);
@@ -75,6 +105,7 @@ describe("installed extension boundary", () => {
 	});
 
 	it("provides stable command completions without expanding arguments", () => {
+		expect(commandCompletions("i")).toEqual([{ value: "init", label: "init" }]);
 		expect(commandCompletions("re")).toEqual([
 			{ value: "review", label: "review" },
 			{ value: "resume", label: "resume" },

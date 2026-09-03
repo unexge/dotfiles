@@ -279,7 +279,9 @@ export class WritePreflight {
 }
 
 function validateMainline(value: string | undefined): string {
-	if (!value) throw new WritePreflightError("Write workflow requires a configured mainline name");
+	if (!value) {
+		throw new WritePreflightError("Write workflow requires a configured mainline name. Run /deep init in this repository.");
+	}
 	if (value.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value)) {
 		throw new WritePreflightError(`Unsafe configured mainline name: ${JSON.stringify(value)}`);
 	}

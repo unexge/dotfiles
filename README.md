@@ -57,6 +57,8 @@ dot help
 
 Only files tracked in this repository are linked, and links pointing at files the repository no longer contains are removed on the next `dot link`. Existing target files are moved to timestamped `.bak.*` paths before links are created. Mutable application directories are not linked wholesale, so history, caches, and local state remain outside the repository.
 
+For the managed `pi-deep-work` package, run `/deep config` once for machine-wide model roles and `/deep init` in each trusted repository that needs `build` or `fix`. By personal convention, `config/git/ignore` keeps `.pi/pi-deep-work.json` machine-local. This overrides the package's recommended committed-policy trust model; force-add the file in repositories where the policy should be versioned and shared.
+
 Zellij downloads the pinned zjstatus WebAssembly release from GitHub on first use. Zellij then asks once for `ReadApplicationState`, `ChangeApplicationState`, and `RunCommands`; zjstatus requests the last permission unconditionally, although this configuration runs no bar commands. `dot link` renders machine-local label settings into Zellij's generated configuration so they are present on the first frame.
 
 ## Dependencies

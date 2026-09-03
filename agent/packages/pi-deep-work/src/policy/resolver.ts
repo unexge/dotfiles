@@ -29,7 +29,7 @@ function assertContained(root: string, path: string): void {
 	}
 }
 
-async function projectPolicyPath(root: string): Promise<string> {
+export async function projectPolicyPath(root: string): Promise<string> {
 	const expected = join(root, CONFIG_DIR_NAME, "pi-deep-work.json");
 	try {
 		const canonical = await realpath(expected);

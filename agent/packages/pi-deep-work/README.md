@@ -29,6 +29,14 @@ Select authenticated models and supported thinking levels for three roles:
 
 Recommendations affect picker order only. Any authenticated model may fill any role, and `/deep config` offers only thinking levels supported by that model. Configuration is stored at `~/.pi/agent/pi-deep-work/config.json`. Existing schema-version 1 configuration remains readable; running `/deep config` writes the role-based schema.
 
+Initialize each trusted repository where `build` or `fix` should write:
+
+```text
+/deep init
+```
+
+`/deep init` prompts for the Git branch or Jujutsu bookmark used as mainline, with `main` as the default. It creates a starter `.pi/pi-deep-work.json` without overwriting an existing policy. Add the repository's trusted checks, then commit the file before starting a write workflow.
+
 Try a read-only workflow:
 
 ```text
@@ -47,6 +55,7 @@ While a run is active, the current delegated-agent output appears in a live widg
 |---|---|
 | `/deep help` | Show command syntax. |
 | `/deep config` | Select the orchestrator, review panel, work agent, and thinking levels. |
+| `/deep init` | Create the current repository's starter policy and choose its mainline. |
 | `/deep how <question>` | Explain the current repository from cited source evidence. |
 | `/deep design <goal>` | Produce a review-panel-approved design without modifying files. |
 | `/deep review [--base <ref-or-revset>] [intent]` | Review the current backend-native diff without modifying files. |
@@ -76,6 +85,8 @@ Useful examples:
 - the exact Git branch or Jujutsu bookmark used as `mainline`;
 - trusted behavior observations and selectors;
 - any additional gates, normalizers, or language scopes.
+
+Run `/deep init` to create a strict starter policy with the selected mainline and empty policy arrays. The initializer refuses to overwrite an existing file. Populate any checks required by the repository and commit the policy before using `fix` or `build`.
 
 `verify` requires a verification contract whose `claim` matches the command's claim exactly, apart from surrounding or repeated ASCII whitespace.
 

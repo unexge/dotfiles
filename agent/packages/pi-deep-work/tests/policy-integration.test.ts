@@ -10,8 +10,11 @@ import {
 	isRecommendedReviewer,
 	resolveModels,
 } from "../src/policy/models.ts";
+import { initializeProjectPolicy } from "../src/policy/project-init.ts";
 import { loadResolvedPolicy } from "../src/policy/resolver.ts";
-import { decodeMachinePolicy } from "../src/policy/schemas.ts";
+import { decodeMachinePolicy, decodeProjectPolicy } from "../src/policy/schemas.ts";
+import { commandRunner } from "../src/vcs/runner.ts";
+import { createRepositoryFixture } from "./helpers/repositories.ts";
 
 const temporary: string[] = [];
 
@@ -170,6 +173,93 @@ describe("policy file loading", () => {
 		await expect(
 			loadResolvedPolicy({ isProjectTrusted: () => false }, { machine: machinePath, canonicalRoot: root }),
 		).rejects.toThrow("Invalid policy");
+	});
+});
+
+describe("project policy initializer", () => {
+	it("creates a strict starter policy at the repository root using main by default", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			const nested = join(fixture.root, "nested");
+			await mkdir(nested);
+			const input = vi.fn().mockResolvedValue("");
+			const ctx = {
+				hasUI: true,
+				cwd: nested,
+				isProjectTrusted: () => true,
+				ui: { input },
+			} as unknown as ExtensionCommandContext;
+
+			const result = await initializeProjectPolicy(ctx, commandRunner);
+			const path = join(fixture.root, ".pi", "pi-deep-work.json");
+			expect(result).toEqual({ status: "created", path, mainline: "main" });
+			expect(input).toHaveBeenCalledWith("Mainline branch or bookmark", "main");
+			expect(decodeProjectPolicy(JSON.parse(await readFile(path, "utf8")))).toEqual({
+				schemaVersion: 1,
+				mainline: "main",
+				quickGates: [],
+				fullGates: [],
+				normalizers: [],
+				observations: [],
+				verificationContracts: [],
+				selectors: [],
+				languageScopes: [],
+			});
+		} finally {
+			await fixture.cleanup();
+		}
+	});
+
+	it("reports an existing valid policy without prompting or overwriting it", async () => {
+		const fixture = await createRepositoryFixture("git");
+		try {
+			const directory = join(fixture.root, ".pi");
+			const path = join(directory, "pi-deep-work.json");
+			await mkdir(directory);
+			const existing = {
+				schemaVersion: 1,
+				mainline: "trunk",
+				quickGates: [],
+				fullGates: [],
+				normalizers: [],
+				observations: [],
+				verificationContracts: [],
+				selectors: [],
+				languageScopes: [],
+			};
+			await writeFile(path, `${JSON.stringify(existing, null, 2)}\n`);
+			const input = vi.fn();
+			const ctx = {
+				hasUI: true,
+				cwd: fixture.root,
+				isProjectTrusted: () => true,
+				ui: { input },
+			} as unknown as ExtensionCommandContext;
+
+			expect(await initializeProjectPolicy(ctx, commandRunner)).toEqual({
+				status: "existing",
+				path,
+				mainline: "trunk",
+			});
+			expect(input).not.toHaveBeenCalled();
+			expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing);
+		} finally {
+			await fixture.cleanup();
+		}
+	});
+
+	it("requires interactive UI and project trust before inspecting the repository", async () => {
+		const base = {
+			cwd: "/missing",
+			isProjectTrusted: () => true,
+			ui: { input: vi.fn() },
+		};
+		await expect(
+			initializeProjectPolicy({ ...base, hasUI: false } as unknown as ExtensionCommandContext, commandRunner),
+		).rejects.toThrow("/deep init requires interactive or RPC UI mode");
+		await expect(
+			initializeProjectPolicy({ ...base, hasUI: true, isProjectTrusted: () => false } as unknown as ExtensionCommandContext, commandRunner),
+		).rejects.toThrow("/deep init requires a trusted project");
 	});
 });
 

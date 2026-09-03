@@ -7,6 +7,7 @@ The extension registers only `/deep`:
 ```text
 /deep help
 /deep config
+/deep init
 /deep how <question>
 /deep design <goal>
 /deep review [--base <ref-or-revset>] [intent]
@@ -24,7 +25,7 @@ Only the registered handler mints `UserOrigin`. No LLM-callable tool, prompt ali
 
 ## Policy and models
 
-Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted repositories may supply strict project policy at `.pi/pi-deep-work.json`; invalid policy is rejected.
+Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted repositories may supply strict project policy at `.pi/pi-deep-work.json`; invalid policy is rejected. `/deep init` requires active project trust, resolves the canonical repository root, and creates a strict starter project policy without overwriting an existing file.
 
 The configured orchestrator owns planning, design, synthesis, verification proposals, and adjudication. The configured work agent owns exploration, implementation, and repair. Every configured review agent must complete design/code review. Each role binds one exact authenticated model and a thinking level supported by that model. Missing, failed, malformed, contradictory, or foreign reviewer output blocks. Orchestrator adjudication is explanatory and cannot clear reviewer severity.
 
