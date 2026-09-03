@@ -1,3 +1,5 @@
+$env.EDITOR = "hx"
+
 $env.PATH = ($env.PATH | prepend ($env.HOME | path join ".local" "bin"))
 $env.PATH = ($env.PATH | prepend ($env.HOME | path join ".cargo" "bin"))
 

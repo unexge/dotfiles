@@ -49,7 +49,7 @@ dot help
 - Ghostty (macOS)
 - Helix
 - Hunk extensions
-- Nushell
+- Nushell environment and shell configuration
 - Zellij with the pinned zjstatus v0.25.0 bottom-bar plugin
 - `magit` terminal launcher
 - Pi instructions, settings, skills, themes, and the local `pi-deep-work` package
