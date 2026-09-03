@@ -6,9 +6,9 @@
     "npm:pi-dynamic-workflows",
     "npm:@plannotator/pi-extension"
   ],
-  "lastChangelogVersion": "0.84.2",
-  "defaultProvider": "amazon-bedrock-mantle-openai-responses",
-  "defaultModel": "openai.gpt-5.6-sol",
+  "lastChangelogVersion": "0.84.3",
+  "defaultProvider": "amazon-bedrock",
+  "defaultModel": "global.openai.gpt-5.6-sol",
   "tuiMode": "fullscreen",
   "hideThinkingBlock": true,
   "quietStartup": true,
