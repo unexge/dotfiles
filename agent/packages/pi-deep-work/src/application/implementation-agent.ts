@@ -1,7 +1,6 @@
 import type { AgentGateway } from "../agents/gateway.ts";
 import type { AgentLanguage } from "../agents/prompt-loader.ts";
 import type { ImplementationReport } from "../agents/schemas.ts";
-import type { TrustedCommandCatalog } from "../gates/catalog.ts";
 import type { BackendTreeService } from "../gates/tree-backend.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
@@ -33,7 +32,6 @@ export class ImplementationAgent {
 		private readonly authority: RunAuthority,
 		private readonly baseGateway: AgentGateway,
 		private readonly boundary: WorkspaceBoundary,
-		private readonly catalog: TrustedCommandCatalog,
 		private readonly trees: BackendTreeService,
 		private readonly store: RunStore,
 		private readonly ref: RunRef,
@@ -74,7 +72,7 @@ export class ImplementationAgent {
 					task: [
 						`Implement the approved design for the operator goal: ${input.goal}`,
 						`Approved design: ${canonicalJson(input.approvedDesign)}`,
-						"Modify only files required by the design. Return data-only test selectors and exact changed paths.",
+						"Modify only files required by the design. Return exact changed paths and an empty testSelectors array.",
 					].join("\n\n"),
 					...(input.language ? { language: input.language } : {}),
 				},
@@ -83,7 +81,6 @@ export class ImplementationAgent {
 			if (result.report.value.status !== "ok") {
 				throw new ImplementationAgentStatusError(result.report.value.status);
 			}
-			for (const proposal of result.report.value.testSelectors) this.catalog.resolveSelector(proposal);
 			const completed = phase.complete();
 			if (completed.mutations.length === 0) throw new Error("Implementation agent made no workspace mutation");
 			const reported = [...new Set(result.report.value.changes.map((change) => change.path))].sort();

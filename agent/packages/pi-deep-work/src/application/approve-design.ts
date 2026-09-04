@@ -33,7 +33,7 @@ interface ApproveDesignBase {
 export type ApproveDesignInput =
 	| (ApproveDesignBase & { caller: "design"; selectorProposals?: never; sourceDesign?: never })
 	| (ApproveDesignBase & { caller: "fix"; selectorProposals: readonly unknown[]; sourceDesign?: never })
-	| (ApproveDesignBase & { caller: "build"; selectorProposals: readonly unknown[]; sourceDesign?: DesignSource });
+	| (ApproveDesignBase & { caller: "build"; selectorProposals?: readonly unknown[]; sourceDesign?: DesignSource });
 
 type DesignReviewSubject = Extract<ReviewSubject, { kind: "standalone-design" | "behavior-design" }>;
 
@@ -201,32 +201,36 @@ export class DesignApprover {
 			}
 			return undefined;
 		}
-		if (!Array.isArray(input.selectorProposals) || input.selectorProposals.length === 0) {
-			throw new Error(`${input.caller} design requires behavior selectors`);
-		}
 		const bySelector = new Map<string, { selectorId: string; value: string; observationId: string }>();
 		const commands = new Map<string, ReturnType<TrustedCommandCatalog["observation"]>>();
-		for (const proposal of input.selectorProposals) {
-			const resolved = this.catalog.resolveSelector(proposal);
-			const previous = bySelector.get(resolved.selectorId);
-			if (previous && previous.value !== resolved.value) {
-				throw new Error(`Behavior selector ${resolved.selectorId} has conflicting values`);
+		if (input.caller === "build") {
+			for (const command of this.catalog.commandsFor("observation")) commands.set(command.id, command);
+		} else {
+			if (!Array.isArray(input.selectorProposals) || input.selectorProposals.length === 0) {
+				throw new Error("fix design requires behavior selectors");
 			}
-			if (!previous) {
-				bySelector.set(resolved.selectorId, {
-					selectorId: resolved.selectorId,
-					value: resolved.value,
-					observationId: resolved.command.id,
-				});
+			for (const proposal of input.selectorProposals) {
+				const resolved = this.catalog.resolveSelector(proposal);
+				const previous = bySelector.get(resolved.selectorId);
+				if (previous && previous.value !== resolved.value) {
+					throw new Error(`Behavior selector ${resolved.selectorId} has conflicting values`);
+				}
+				if (!previous) {
+					bySelector.set(resolved.selectorId, {
+						selectorId: resolved.selectorId,
+						value: resolved.value,
+						observationId: resolved.command.id,
+					});
+				}
+				commands.set(resolved.command.id, resolved.command);
 			}
-			commands.set(resolved.command.id, resolved.command);
 		}
 		const selectors = [...bySelector.values()].sort((left, right) =>
 			left.selectorId < right.selectorId ? -1 : left.selectorId > right.selectorId ? 1 : 0,
 		);
 		const observationIds = [...commands.keys()].sort();
 		const claimKeys = [...new Set([...commands.values()].flatMap((command) => [...command.claimKeys]))].sort();
-		if (claimKeys.length === 0) throw new Error("Behavior selectors resolve to no trusted claim keys");
+		if (claimKeys.length === 0) throw new Error(`${input.caller} design resolves to no trusted behavior claims`);
 		const core = { schemaVersion: 1 as const, selectors, observationIds, claimKeys };
 		return decodeDesignData(BehaviorContractSchema, { ...core, id: canonicalDigest(core) });
 	}

@@ -13,7 +13,6 @@ import {
 import { MutationRecoveryRequiredError, type RunAuthority } from "../src/application/run-authority.ts";
 import { startRun } from "../src/application/lifecycle.ts";
 import { attemptId } from "../src/application/types.ts";
-import { TrustedCommandCatalog } from "../src/gates/catalog.ts";
 import type { BackendTreeService } from "../src/gates/tree-backend.ts";
 import { resolvePolicy } from "../src/policy/catalog.ts";
 import { decodeMachinePolicy } from "../src/policy/schemas.ts";
@@ -151,7 +150,6 @@ async function fixture(scenario: "ok" | "status" | "path" | "selector" | "provid
 		authority,
 		gateway,
 		await WorkspaceBoundary.open(repository, runner),
-		await TrustedCommandCatalog.build(policy, repository.root),
 		trees,
 		store,
 		ref,
@@ -182,7 +180,7 @@ describe("ImplementationAgent", () => {
 		}
 	});
 
-	for (const scenario of ["status", "path", "selector", "provider", "checkpoint"] as const) {
+	for (const scenario of ["status", "path", "provider", "checkpoint"] as const) {
 		it(`settles manual inspection for ${scenario} failure after mutation`, async () => {
 			const values = await fixture(scenario);
 			try {
@@ -200,6 +198,23 @@ describe("ImplementationAgent", () => {
 			}
 		});
 	}
+
+	it("ignores mutation-agent selector proposals after behavior approval", async () => {
+		const values = await fixture("selector");
+		try {
+			await expect(
+				values.agent.implement({
+					approvedDesign: { approvedDesignId: "a".repeat(64), caller: "build" } as never,
+					goal: "implement behavior",
+					checkpointSequence: 1,
+					createdAt: "2026-08-25T00:00:02.000Z",
+				}),
+			).resolves.toMatchObject({ checkpoint: { phase: "implement" } });
+			expect(values.manualInspection).not.toHaveBeenCalled();
+		} finally {
+			await values.repositoryFixture.cleanup();
+		}
+	});
 
 	it("preserves an ordinary agent status failure before any mutation", async () => {
 		const values = await fixture("none");

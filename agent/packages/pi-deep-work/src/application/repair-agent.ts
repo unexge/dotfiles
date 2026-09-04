@@ -2,7 +2,6 @@ import type { AgentGateway } from "../agents/gateway.ts";
 import type { RunAuthority } from "./run-authority.ts";
 import { mutationEffectOptions, settleMutationError } from "./mutation-owner.ts";
 import type { AgentLanguage } from "../agents/prompt-loader.ts";
-import type { TrustedCommandCatalog } from "../gates/catalog.ts";
 import type { BackendTreeService } from "../gates/tree-backend.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
@@ -30,7 +29,6 @@ export class RepairAgent {
 		private readonly authority: RunAuthority,
 		private readonly baseGateway: AgentGateway,
 		private readonly boundary: WorkspaceBoundary,
-		private readonly catalog: TrustedCommandCatalog,
 		private readonly trees: BackendTreeService,
 		private readonly store: RunStore,
 		private readonly ref: RunRef,
@@ -76,13 +74,13 @@ export class RepairAgent {
 						`Approved design: ${input.approvedDesign.approvedDesignId}`,
 						`Candidate: ${canonicalJson(input.candidate)}`,
 						`Findings: ${canonicalJson(input.findings)}`,
+						"Return exact changed paths and an empty testSelectors array.",
 					].join("\n\n"),
 					...(input.language ? { language: input.language } : {}),
 				},
 				options,
 			);
 			if (result.report.value.status !== "ok") throw new Error(`Repair agent returned ${result.report.value.status}`);
-			for (const proposal of result.report.value.testSelectors) this.catalog.resolveSelector(proposal);
 			const completed = phase.complete();
 			if (completed.mutations.length === 0) throw new Error("Repair agent made no workspace mutation");
 			const reported = [...new Set(result.report.value.changes.map((change) => change.path))].sort();

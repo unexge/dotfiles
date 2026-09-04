@@ -31,7 +31,7 @@ export const ResolvedBehaviorSelectorSchema = Type.Object(
 const BehaviorContractCoreSchema = Type.Object(
 	{
 		schemaVersion: Type.Literal(1),
-		selectors: Type.Array(ResolvedBehaviorSelectorSchema, { minItems: 1 }),
+		selectors: Type.Array(ResolvedBehaviorSelectorSchema),
 		observationIds: Type.Array(identifier, { minItems: 1 }),
 		claimKeys: Type.Array(identifier, { minItems: 1 }),
 	},

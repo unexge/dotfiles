@@ -407,6 +407,7 @@ describe("build workflow", () => {
 		expect(values.implementation.assertRun).toHaveBeenCalledTimes(1);
 		expect(values.qualifier.assertRun).toHaveBeenCalledTimes(1);
 		expect(values.qualifier.run).toHaveBeenCalledWith(expect.objectContaining({ checkpointSequence: 2 }));
+		expect(values.approve.mock.calls[0][0]).not.toHaveProperty("selectorProposals");
 	});
 
 	for (const status of ["ChangesRequired", "NotVerified", "Inconclusive"] as const) {
@@ -425,13 +426,15 @@ describe("build workflow", () => {
 		});
 	}
 
-	it("provides the designer a data-only trusted selector guide", async () => {
+	it("keeps behavior observation selection out of the build designer", async () => {
 		const values = await fixture();
 
 		await run(values);
 
 		const designTask = values.tasks.find((task) => task.includes("Design the implementation"));
-		expect(designTask).toContain('"selectorId":"rust-path"');
+		expect(designTask).toContain("All configured behavior observations are coordinator-selected");
+		expect(designTask).toContain("empty testSelectors array");
+		expect(designTask).not.toContain('"selectorId"');
 		expect(designTask).not.toContain('"observationId"');
 		expect(designTask).not.toContain('"argv"');
 	});

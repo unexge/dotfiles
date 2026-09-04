@@ -12,7 +12,6 @@ import { userOriginFromRegisteredCommand } from "../src/application/user-origin.
 import { MutationRecoveryRequiredError, type RunAuthority } from "../src/application/run-authority.ts";
 import { startRun } from "../src/application/lifecycle.ts";
 import { attemptId } from "../src/application/types.ts";
-import { TrustedCommandCatalog } from "../src/gates/catalog.ts";
 import type { BackendTreeService } from "../src/gates/tree-backend.ts";
 import { resolvePolicy } from "../src/policy/catalog.ts";
 import { decodeMachinePolicy } from "../src/policy/schemas.ts";
@@ -141,7 +140,6 @@ describe("RepairAgent", () => {
 				authority,
 				baseGateway,
 				await WorkspaceBoundary.open(repository, runner),
-				await TrustedCommandCatalog.build(policy, repository.root),
 				trees,
 				store,
 				ref,

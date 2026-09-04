@@ -156,7 +156,9 @@ class FixResumeRuntime extends WorkflowRuntime {
 									summary: regression ? "regression" : "fixed",
 									citations: [],
 									changes: [{ path, detail: "changed" }],
-									testSelectors: [{ selectorId: "regression-path", value: "tests/behavior.rs" }],
+									testSelectors: regression
+										? [{ selectorId: "missing", value: "tests/.+\\.rs" }]
+										: [{ selectorId: "regression-path", value: "tests/behavior.rs" }],
 								},
 							},
 						};
@@ -257,7 +259,9 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 									summary: regression ? "regression" : "fixed",
 									citations: [],
 									changes: [{ path, detail: regression ? "added regression" : "fixed behavior" }],
-									testSelectors: [{ selectorId: "regression-path", value: "tests/behavior.rs" }],
+									testSelectors: regression
+										? [{ selectorId: "missing", value: "tests/.+\\.rs" }]
+										: [{ selectorId: "regression-path", value: "tests/behavior.rs" }],
 								},
 							},
 						};
@@ -280,7 +284,7 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 		const approver = new DesignApprover(panel, catalog, store, ref, async () => (await trees.captureObservation()).observation);
 		const boundary = await WorkspaceBoundary.open(repository, runner);
 		const regression = new RegressionAgent(authority, gateway, boundary, catalog, trees, gates, store, ref);
-		const implementation = new ImplementationAgent(authority, gateway, boundary, catalog, trees, store, ref);
+		const implementation = new ImplementationAgent(authority, gateway, boundary, trees, store, ref);
 		const normalizer = new Normalizer(authority, resolved, trees);
 		const backend =
 			repository.kind === "git"
@@ -356,8 +360,8 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 			]),
 		);
 		const regressionTask = agentTasks.find((task) => task.label === "write regression only")?.task;
-		expect(regressionTask).toContain('"selectorId":"regression-path"');
-		expect(regressionTask).not.toContain('"observationId"');
+		expect(regressionTask).toContain("coordinator derives the trusted observation");
+		expect(regressionTask).not.toContain('"selectorId"');
 		const designTask = agentTasks.find((task) => task.label === "design fix")?.task;
 		expect(designTask).toContain('"selectorId":"regression-path","value":"tests/behavior.rs"');
 		if (repository.kind === "git") {

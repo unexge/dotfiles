@@ -197,7 +197,10 @@ describe("shared approveDesign", () => {
 						contract: {
 							claimKeys: ["cache.safe"],
 							observationIds: ["rust-observation"],
-							selectors: [{ selectorId: "rust-path", value: "crates/cache/tests/cache.rs" }],
+							selectors:
+								caller === "fix"
+									? [{ selectorId: "rust-path", value: "crates/cache/tests/cache.rs" }]
+									: [],
 						},
 					},
 					reviewSubject: { kind: "behavior-design" },
@@ -208,6 +211,32 @@ describe("shared approveDesign", () => {
 			expect(task).toContain("cache.safe");
 		});
 	}
+
+	it("binds every trusted observation into build approval without model selectors", async () => {
+		const values = await fixture();
+		const result = await values.approver.approve({
+			caller: "build",
+			design: "build design",
+			userOrigin: userOriginFromRegisteredCommand("Build the cache"),
+			expectedObservationDigest,
+			selectorProposals: [{ selectorId: "rust-path", value: "not-a-concrete-path" }],
+			approvedAt: now,
+		});
+		expect(result).toMatchObject({
+			status: "Approved",
+			record: {
+				caller: "build",
+				behavior: {
+					kind: "contract",
+					contract: {
+						selectors: [],
+						observationIds: ["rust-observation"],
+						claimKeys: ["cache.safe"],
+					},
+				},
+			},
+		});
+	});
 
 	it("binds standalone design lineage into a build approval", async () => {
 		const values = await fixture();
@@ -221,7 +250,6 @@ describe("shared approveDesign", () => {
 			design: "build derivative",
 			userOrigin: userOriginFromRegisteredCommand("Build the cache"),
 			expectedObservationDigest,
-			selectorProposals: [{ selectorId: "rust-path", value: "crates/cache/tests/cache.rs" }],
 			sourceDesign,
 			approvedAt: now,
 		});
@@ -253,7 +281,7 @@ describe("shared approveDesign", () => {
 		]) {
 			await expect(
 				values.approver.approve({
-					caller: "build",
+					caller: "fix",
 					design: "design",
 					userOrigin: userOriginFromRegisteredCommand("goal"),
 					expectedObservationDigest,

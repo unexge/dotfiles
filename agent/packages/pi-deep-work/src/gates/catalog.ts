@@ -166,13 +166,13 @@ export class TrustedCommandCatalog {
 		if (this.policy !== policy) throw new Error("TrustedCommandCatalog is bound to another resolved policy");
 	}
 
-	assertWriteReady(): void {
+	assertWriteReady(workflow: "build" | "fix"): void {
 		const missing: string[] = [];
 		if (!this.policy.mainline) missing.push("mainline");
 		if (this.commandsFor("quick").length === 0) missing.push("quick gate");
 		if (this.commandsFor("full").length === 0) missing.push("full gate");
 		if (this.commandsFor("observation").length === 0) missing.push("behavior observation");
-		if (this.policy.selectors.length === 0) missing.push("behavior selector");
+		if (workflow === "fix" && this.policy.selectors.length === 0) missing.push("behavior selector");
 		if (missing.length > 0) {
 			throw new Error(`Write workflow policy is missing ${missing.join(", ")}. Run /deep init --refresh.`);
 		}
@@ -208,6 +208,18 @@ export class TrustedCommandCatalog {
 			.sort((left, right) =>
 				left.selectorId < right.selectorId ? -1 : left.selectorId > right.selectorId ? 1 : 0,
 			);
+	}
+
+	matchingSelectorsForPath(value: string): readonly TrustedSelectorResolution[] {
+		const matches: TrustedSelectorResolution[] = [];
+		for (const selector of [...this.policy.selectors].sort((left, right) =>
+			left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+		)) {
+			try {
+				matches.push(this.resolveSelector({ selectorId: selector.id, value }));
+			} catch {}
+		}
+		return Object.freeze(matches);
 	}
 
 	resolveSelector(input: unknown): TrustedSelectorResolution {

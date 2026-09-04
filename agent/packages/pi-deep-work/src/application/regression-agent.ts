@@ -1,7 +1,6 @@
 import type { AgentGateway } from "../agents/gateway.ts";
 import type { TrustedCommand, TrustedCommandCatalog, TrustedSelectorResolution } from "../gates/catalog.ts";
 import type { GateExecutor } from "../gates/executor.ts";
-import { canonicalJson } from "../policy/canonical-json.ts";
 import type { BackendTreeService, BackendTreeSnapshot } from "../gates/tree-backend.ts";
 import {
 	mintRedRegressionEvidence,
@@ -92,21 +91,28 @@ export class RegressionAgent {
 					task: [
 						`Add only the narrow executable regression for this bug: ${input.goal}`,
 						`Investigation: ${JSON.stringify(input.investigation)}`,
-						`Trusted selector choices: ${canonicalJson(this.catalog.selectorGuide())}`,
-						"Do not change production behavior. Return exactly one selector from these choices and the exact changed paths.",
+						"Do not change production behavior. Return exact changed paths and an empty testSelectors array.",
+						"The coordinator derives the trusted observation from the authoritative regression paths.",
 					].join("\n\n"),
 				},
 				options,
 			);
 			if (result.report.value.status !== "ok") throw new RegressionAgentStatusError(result.report.value.status);
-			if (result.report.value.testSelectors.length === 0) throw new Error("Regression agent returned no test selector");
-			const resolutions = result.report.value.testSelectors.map((proposal) => this.catalog.resolveSelector(proposal));
-			command = oneObservationCommand(resolutions);
 			const completed = phase.complete();
 			if (completed.mutations.length === 0) throw new Error("Regression agent made no workspace mutation");
 			const reported = [...new Set(result.report.value.changes.map((change) => change.path))].sort();
 			const actual = completed.mutations.map((mutation) => mutation.path).sort();
 			mutationPaths = actual;
+			const matches = actual.flatMap((path) => this.catalog.matchingSelectorsForPath(path));
+			if (matches.length === 0) {
+				throw new Error(`No trusted behavior selector accepts regression paths: ${actual.join(", ")}`);
+			}
+			command = oneObservationCommand(matches);
+			const resolutions = actual.map((path) => {
+				const resolution = matches.find((match) => match.value === path && match.command === command);
+				if (!resolution) throw new Error(`Regression path does not select the trusted observation: ${path}`);
+				return resolution;
+			});
 			if (reported.join("\0") !== actual.join("\0")) {
 				throw new Error("Regression report changed paths do not match authoritative mutation records");
 			}

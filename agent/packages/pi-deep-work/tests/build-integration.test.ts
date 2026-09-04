@@ -62,7 +62,7 @@ function policy(behaviorPass = true) {
 			minimumFullGates: [{ id: "full", languages: ["rust"], argv: command, timeoutMs: 2_000 }],
 			observations: [{ id: "behavior", claimKeys: ["behavior.ok"], argv: behaviorCommand, timeoutMs: 2_000 }],
 			verificationContracts: [],
-			selectors: [{ id: "rust-path", language: "rust", observationId: "behavior", valuePattern: ".+\\.rs" }],
+			selectors: [],
 		}),
 		decodeProjectPolicy({
 			schemaVersion: 1,
@@ -94,7 +94,7 @@ function designReport() {
 		tradeoffs: [],
 		verification: ["trusted behavior command"],
 		openQuestions: [],
-		testSelectors: [{ selectorId: "rust-path", value: "tests/behavior.rs" }],
+		testSelectors: [{ selectorId: "missing", value: "tests/.+\\.rs" }],
 	};
 }
 
@@ -157,7 +157,7 @@ class BuildResumeRuntime extends WorkflowRuntime {
 									summary: "implemented",
 									citations: [],
 									changes: [{ path: "feature.rs", detail: "added" }],
-									testSelectors: [{ selectorId: "rust-path", value: "tests/behavior.rs" }],
+									testSelectors: [{ selectorId: "missing", value: "tests/.+\\.rs" }],
 								},
 							},
 						};
@@ -267,7 +267,7 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 									summary: "implemented",
 									citations: [],
 									changes: [{ path: "feature.rs", detail: "added" }],
-									testSelectors: [{ selectorId: "rust-path", value: "tests/behavior.rs" }],
+									testSelectors: [{ selectorId: "missing", value: "tests/.+\\.rs" }],
 								},
 							},
 						};
@@ -291,7 +291,6 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			authority,
 			gateway,
 			await WorkspaceBoundary.open(repository, runner),
-			catalog,
 			trees,
 			store,
 			ref,
@@ -353,9 +352,15 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			completedAt: "2026-08-25T00:00:05.000Z",
 		});
 		expect(await readFile(join(fixture.root, "feature.rs"), "utf8")).toContain("feature");
-		expect(JSON.parse(await readFile(join(ref.directory, "artifacts/workflow/build-context.json"), "utf8"))).toMatchObject({
+		const buildContext = JSON.parse(
+			await readFile(join(ref.directory, "artifacts/workflow/build-context.json"), "utf8"),
+		);
+		expect(buildContext).toMatchObject({
 			workflow: "build",
 			stage: "implemented",
+			approvedDesign: {
+				behavior: { kind: "contract", contract: { selectors: [], observationIds: ["behavior"] } },
+			},
 			implementationCheckpoint: { phase: "implement", sequence: 1 },
 		});
 		if (!behaviorPass) {

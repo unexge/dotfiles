@@ -18,7 +18,7 @@ The package has one installed execution graph. All package tests live under `tes
 - Exact authenticated orchestrator, work, and complete reviewer bindings with model-supported thinking levels; legacy model policy migration.
 - Fixed role/model/tool map; only implement/repair receive repository mutation tools; no model bash.
 - Structured report decoding, isolated child resources, bounded concurrency, model cancellation.
-- Data-only selector mapping to package/catalog-owned commands and redacted selector guidance that exposes no argv or observation mapping.
+- Coordinator-selected all-observation build contracts, workflow-specific write readiness, and mutation-path-derived fix selectors; mutation-agent selector output cannot choose behavior commands.
 
 ## Repository and subjects
 
@@ -58,7 +58,7 @@ Neither backend pushes.
 
 - `how`, text/diff `unslop`, `review`, standalone `verify`, and standalone `design` positive/negative/drift/control outcomes.
 - Deterministic design Markdown, structured constraints/decisions/alternatives, complete review findings, same-repository revision lineage, and digest-validated approved-design handoff.
-- Build derivatives bind source design identity and reject changed repository observations before implementation.
+- Build derivatives bind source design identity, use every configured behavior observation without selectors, and reject changed repository observations before implementation.
 - Git/jj `beginWrite`; dirty/conflict/merge/immutable/mainline ancestry rejection.
 - Mutation-owned build/fix implementation and repair checkpoints.
 - Real Git/native-jj/colocated-jj build commits and fix red-to-green commits.

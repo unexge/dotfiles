@@ -29,7 +29,9 @@ Initialize each repository where `build` or `fix` may write:
 /deep init
 ```
 
-Review `.pi/pi-deep-work.json`, then keep the checkout clean and on its configured mainline before a write workflow. Refresh discovered checks after manifest changes:
+Review `.pi/pi-deep-work.json`, then keep the checkout clean and on its configured mainline before a write workflow. The policy owns executable commands: `quickGates` run fast checks such as type checking and linting, `fullGates` run complete suites, and `observations` provide behavior evidence. Builds run every configured observation; models never choose commands or selector paths. Fixes derive one trusted observation from the regression files they actually create.
+
+Refresh discovered checks after manifest changes:
 
 ```text
 /deep init --refresh
@@ -74,7 +76,7 @@ You may add constraints to the handoff:
 /deep build --design <run-id> Reuse the current worker lifecycle and preserve cancellation during backoff
 ```
 
-The coordinator validates the design run, repository identity, immutable record, artifact digest, and unchanged repository observation. It then creates and reviews a build-specific derivative that preserves accepted decisions and adds trusted behavior selectors. If the repository changed since approval, refresh the design with `/deep design --from ...`.
+The coordinator validates the design run, repository identity, immutable record, artifact digest, and unchanged repository observation. It then creates and reviews a build-specific derivative that preserves accepted decisions and binds every configured behavior observation. If the repository changed since approval, refresh the design with `/deep design --from ...`.
 
 The full machine-readable run summary remains at:
 

@@ -29,7 +29,7 @@ Machine policy is strict JSON at `~/.pi/agent/pi-deep-work/config.json`. Trusted
 
 The configured orchestrator owns planning, design, synthesis, verification proposals, and adjudication. The configured work agent owns exploration, implementation, and repair. Every configured review agent must complete design/code review. Each role binds one exact authenticated model and a thinking level supported by that model. Missing, failed, malformed, contradictory, or foreign reviewer output blocks. Orchestrator adjudication is explanatory and cannot clear reviewer severity.
 
-Models never choose argv, observation IDs, claim keys, mappings, subjects, reviewers, or commit authorization. They receive a data-only selector guide containing selector IDs, languages, path patterns, and scopes, and may return only schema-valid selector values from that guide.
+Models never choose argv, observation IDs, claim keys, mappings, subjects, reviewers, or commit authorization. Build contracts include every trusted configured observation and require no model selectors. Fix regression selectors are derived by the coordinator from authoritative mutation paths; the fix designer must preserve those exact data-only selectors.
 
 ## Repository and concurrency
 
@@ -72,11 +72,11 @@ Standalone verify resolves the exact normalized operator claim to one trusted `V
 
 ## Write preflight and mutation
 
-Before run creation, fix/build require a configured mainline plus at least one applicable quick gate, full gate, behavior observation, and selector. Missing capability fails with an actionable `/deep init --refresh` diagnostic and creates no durable run. Machine gates apply only when their declared languages are active in the project policy. Git then requires the configured active mainline branch, a clean conflict-free tracked/nonignored checkout, and stable matching HEAD/index/tree. Jujutsu requires an empty mutable conflict-free single-parent `@`, stable operation/workspace/change identity, and exact configured mainline bookmark ancestry.
+Before run creation, build requires a configured mainline plus at least one applicable quick gate, full gate, and behavior observation. Fix additionally requires a selector that maps its authoritative regression path to one observation. Missing capability fails with an actionable `/deep init --refresh` diagnostic and creates no durable run. Machine gates apply only when their declared languages are active in the project policy. Git then requires the configured active mainline branch, a clean conflict-free tracked/nonignored checkout, and stable matching HEAD/index/tree. Jujutsu requires an empty mutable conflict-free single-parent `@`, stable operation/workspace/change identity, and exact configured mainline bookmark ancestry.
 
 Only implement/repair jobs receive repository-scoped read/search/edit/write tools, never bash. Every completed mutation phase records preimage/result digests and a subject-bound checkpoint. An interrupted or uncheckpointed mutation settles `NeedsManualInspection`; no rollback/reset/clean is attempted.
 
-`fix` requires a coordinator-minted clean red failure from a trusted observation on a sealed regression subject, then the same observation must pass on the final candidate. Passing, timeout, killed, incomplete, drifting, foreign, uncovered, or receipt-less red evidence cannot authorize.
+`fix` requires a coordinator-minted clean red failure from a trusted observation on a sealed regression subject. The coordinator maps the authoritative regression mutation paths through trusted selectors; mutation-agent selector output is ignored. The same observation must then pass on the final candidate. Passing, timeout, killed, incomplete, drifting, foreign, uncovered, or receipt-less red evidence cannot authorize.
 
 ## Qualification and authorization
 

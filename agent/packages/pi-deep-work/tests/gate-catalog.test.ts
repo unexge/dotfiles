@@ -72,6 +72,8 @@ describe("trusted command catalog", () => {
 		expect(selected.command.argv).toEqual(["cargo", "test", "--locked"]);
 		expect(selected.command.claimKeys).toEqual(["behavior.ok"]);
 		expect(selected.value).toBe("crates/core/tests/cache.rs");
+		expect(catalog.matchingSelectorsForPath("crates/core/tests/cache.rs")).toEqual([selected]);
+		expect(catalog.matchingSelectorsForPath("crates/core/tests/cache.py")).toEqual([]);
 		expect(catalog.selectorGuide()).toEqual([
 			{
 				selectorId: "rust-test-path",
@@ -82,6 +84,19 @@ describe("trusted command catalog", () => {
 		]);
 		expect(JSON.stringify(catalog.selectorGuide())).not.toContain("cargo");
 		expect(Object.keys(catalog.selectorGuide()[0])).not.toContain("observationId");
+	});
+
+	it("requires selectors only for fix workflows", async () => {
+		const configured = policy();
+		const resolved = resolvePolicy(
+			decodeMachinePolicy({ ...configured.machine, selectors: [] }),
+			configured.project,
+		);
+		const root = await mkdtemp(join(tmpdir(), "pi-deep-gate-readiness-"));
+		temporary.push(root);
+		const catalog = await TrustedCommandCatalog.build(resolved, root);
+		expect(() => catalog.assertWriteReady("build")).not.toThrow();
+		expect(() => catalog.assertWriteReady("fix")).toThrow("behavior selector");
 	});
 
 	it("runs machine gates only for languages active in the project policy", async () => {

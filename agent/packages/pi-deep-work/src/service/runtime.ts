@@ -151,7 +151,7 @@ export class WorkflowRuntime {
 		const requestWithSource = await this.resolveDesignSource(request, repository.repositoryId);
 		if (requestWithSource.workflow === "build" || requestWithSource.workflow === "fix") {
 			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
-			catalog.assertWriteReady();
+			catalog.assertWriteReady(requestWithSource.workflow);
 		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
 		const queued = this.queued(requestWithSource, repository, policy.digest);
@@ -258,7 +258,7 @@ export class WorkflowRuntime {
 		if (policy.digest !== state.policyDigest) throw new Error("resume policy digest changed");
 		if (state.workflow === "build" || state.workflow === "fix") {
 			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
-			catalog.assertWriteReady();
+			catalog.assertWriteReady(state.workflow);
 		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
 		const origin = userOriginForPersistedGoal(commandOrigin, state.goal);
@@ -455,7 +455,7 @@ export class WorkflowRuntime {
 			const approver = new DesignApprover(panel, catalog, this.store, ref, async () =>
 				(await trees.captureObservation()).observation,
 			);
-			const implementation = new ImplementationAgent(authority, gateway, boundary, catalog, trees, this.store, ref);
+			const implementation = new ImplementationAgent(authority, gateway, boundary, trees, this.store, ref);
 			const normalizer = new Normalizer(authority, policy, trees);
 			const backend =
 				repository.kind === "git"
@@ -471,7 +471,7 @@ export class WorkflowRuntime {
 							),
 						}
 					: { kind: "jj" as const, service: new JjTransactionService(authority, this.store, ref, repository, this.runner, trees) };
-			const repair = new RepairAgent(authority, gateway, boundary, catalog, trees, this.store, ref);
+			const repair = new RepairAgent(authority, gateway, boundary, trees, this.store, ref);
 			const qualifier = new QualifyAndCommit(
 				policy,
 				catalog,
@@ -801,7 +801,7 @@ export class WorkflowRuntime {
 	): Promise<void> {
 		const preflight = new WritePreflight(authority, trees, repository, policy, this.runner);
 		const approver = new DesignApprover(panel, catalog, this.store, ref, async () => (await trees.captureObservation()).observation);
-		const implementation = new ImplementationAgent(authority, gateway, boundary, catalog, trees, this.store, ref);
+		const implementation = new ImplementationAgent(authority, gateway, boundary, trees, this.store, ref);
 		const normalizer = new Normalizer(authority, policy, trees);
 		const backend =
 			repository.kind === "git"
@@ -817,7 +817,7 @@ export class WorkflowRuntime {
 						),
 					}
 				: { kind: "jj" as const, service: new JjTransactionService(authority, this.store, ref, repository, this.runner, trees) };
-		const repair = new RepairAgent(authority, gateway, boundary, catalog, trees, this.store, ref);
+		const repair = new RepairAgent(authority, gateway, boundary, trees, this.store, ref);
 		const qualifier = new QualifyAndCommit(
 			policy,
 			catalog,

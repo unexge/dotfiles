@@ -129,9 +129,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				...(sourceContext ? [sourceContext] : []),
 				"Use this validated frame:",
 				canonicalJson(frame.report.value),
-				"Trusted selector choices:",
-				canonicalJson(input.catalog.selectorGuide()),
-				"Return only data selectors from these choices; never propose argv.",
+				"All configured behavior observations are coordinator-selected. Return an empty testSelectors array.",
 			].join("\n\n"),
 		});
 		if (designResult.report.value.status !== "ok") {
@@ -145,7 +143,6 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			design,
 			userOrigin: input.origin,
 			expectedObservationDigest: initialObservationDigest,
-			selectorProposals: designResult.report.value.testSelectors,
 			approvedAt: input.approvedAt,
 			...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
 		});
