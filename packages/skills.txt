@@ -1,4 +1,4 @@
 backnotprop/plannotator/apps/skills/extra
 dcramer/dex
 humanlayer/skills show-me
-mattpocock/skills grill-me diagnose grill-with-docs improve-codebase-architecture tdd to-prd zoom-out
+mattpocock/skills grill-me grill-with-docs improve-codebase-architecture tdd
