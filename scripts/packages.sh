@@ -115,14 +115,14 @@ install_skills() {
 
     if [[ -z "${skills// }" ]]; then
       info "Installing skills from $repo"
-      npx --yes skills add "$repo" --global --yes --agent universal
+      npx --yes skills add "$repo" --global --yes --agent universal </dev/null
       continue
     fi
 
     read -r -a selected_skills <<< "$skills"
     for skill in "${selected_skills[@]}"; do
       info "Installing skill $skill from $repo"
-      npx --yes skills add "$repo" --skill "$skill" --global --yes --agent universal
+      npx --yes skills add "$repo" --skill "$skill" --global --yes --agent universal </dev/null
     done
   done < "$REPO_ROOT/packages/skills.txt"
 }
