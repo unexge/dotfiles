@@ -11,7 +11,7 @@ import {
 	type ModelSelection,
 } from "./schemas.ts";
 
-const HIGH_RIGOR_THINKING = ["max", "xhigh", "high", "medium", "low", "minimal", "off"] as const;
+const HIGH_RIGOR_THINKING = ["high", "xhigh", "max", "medium", "low", "minimal", "off"] as const;
 const WORKER_THINKING = ["high", "xhigh", "max", "medium", "low", "minimal", "off"] as const;
 
 function modelKey(model: Pick<Model<Api>, "provider" | "id">): string {
@@ -141,7 +141,7 @@ export async function configurePolicy(ctx: ExtensionCommandContext, path: string
 	if (!orchestratorModel) return false;
 	const orchestratorThinking = await selectThinkingLevel(
 		ctx,
-		"Orchestrator thinking (max/xhigh recommended)",
+		"Orchestrator thinking (high recommended)",
 		orchestratorModel,
 		currentThinkingLevel(existing?.models.orchestrator, orchestratorModel),
 		HIGH_RIGOR_THINKING,
@@ -165,7 +165,7 @@ export async function configurePolicy(ctx: ExtensionCommandContext, path: string
 		if (!reviewerModel) return false;
 		const reviewerThinking = await selectThinkingLevel(
 			ctx,
-			`Review agent ${reviewers.length + 1} thinking (max/xhigh recommended)`,
+			`Review agent ${reviewers.length + 1} thinking (high recommended)`,
 			reviewerModel,
 			currentThinkingLevel(current, reviewerModel),
 			HIGH_RIGOR_THINKING,

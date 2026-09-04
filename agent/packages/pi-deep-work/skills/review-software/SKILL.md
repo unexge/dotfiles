@@ -15,7 +15,7 @@ license: MIT
 5. Check public API, serialization, persistence, protocol, and feature-gate compatibility.
 6. Check for unrelated edits, unnecessary abstraction, duplicate tests, narrating comments, and unsupported guards.
 7. File only evidenced findings with exact locations and concrete failure modes.
-8. Distinguish blockers, important repairs, and optional suggestions.
+8. File only blockers and important repairs. Omit optional suggestions and minor improvements.
 9. Approve only when blocker and important findings are absent or disproved with direct evidence.
 
-Do not modify code. Do not lower severity because tests are green. Do not file preferences already enforced by formatting or lint tools.
+Do not modify code. Do not lower severity because tests are green. Do not file preferences already enforced by formatting or lint tools. Do not mention an issue merely to demonstrate review coverage.

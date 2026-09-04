@@ -76,13 +76,13 @@ function machineValue() {
 
 function configUi() {
 	const select = vi.fn(async (title: string, choices: string[]) => {
-		if (title === "Orchestrator thinking (max/xhigh recommended)") {
-			expect(choices.slice(0, 2)).toEqual(["max", "xhigh"]);
-			return "max";
+		if (title === "Orchestrator thinking (high recommended)") {
+			expect(choices[0]).toBe("high");
+			return "high";
 		}
 		if (title.startsWith("Review agent ") && title.includes(" thinking ")) {
-			expect(choices.slice(0, 2).sort()).toEqual(["max", "xhigh"]);
-			return "xhigh";
+			expect(choices[0]).toBe("high");
+			return "high";
 		}
 		if (title === "Work agent thinking (high recommended)") {
 			expect(choices[0]).toBe("high");
@@ -515,9 +515,9 @@ describe("config writer", () => {
 		const first = decodeMachinePolicy(JSON.parse(await readFile(path, "utf8")));
 		expect(first.schemaVersion).toBe(2);
 		expect(first.models).toEqual({
-			orchestrator: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "max" },
+			orchestrator: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "high" },
 			worker: { provider: orchestrator.provider, id: orchestrator.id, thinkingLevel: "high" },
-			reviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "xhigh" }],
+			reviewers: [{ provider: reviewer.provider, id: reviewer.id, thinkingLevel: "high" }],
 		});
 		expect(first.minimumQuickGates).toHaveLength(1);
 		expect(first.minimumFullGates).toHaveLength(1);

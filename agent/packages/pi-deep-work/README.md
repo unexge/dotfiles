@@ -17,7 +17,7 @@ Only an explicit `/deep ...` command starts or controls a run. There is no stick
 
 ## Setup
 
-Configure the orchestrator, review panel, and work agent once:
+Configure the orchestrator, review panel, and work agent once. The picker recommends `high` thinking for all roles while preserving any existing selection as the first choice:
 
 ```text
 /deep config
@@ -52,7 +52,7 @@ Refresh discovered checks after manifest changes:
 /deep design Add resumable uploads with bounded retries
 ```
 
-A design run creates two candidates, synthesizes one structured design, and sends it to every configured reviewer. Blocker and important findings are revised and reviewed again up to `maxRepairRounds`; only findings that remain after the configured iterations produce `ChangesRequired`. Suggestions do not block approval. The final result includes readable Markdown covering usage, constraints, decisions, data shape, interfaces, modules, invariants, rejected alternatives, tradeoffs, verification, open questions, citations, review findings, and the recommended next command.
+A design run creates two candidates, synthesizes one structured design, and sends it to every configured reviewer. Reviewers focus on correctness and material simplicity problems and omit optional suggestions. Design review also checks for overengineering and premature commitments that make likely behavior changes unnecessarily expensive, without demanding speculative extension points. Blocker and important findings are revised and reviewed again up to `maxRepairRounds`; only findings that remain after the configured iterations produce `ChangesRequired`. The final result includes readable Markdown covering usage, constraints, decisions, data shape, interfaces, modules, invariants, rejected alternatives, tradeoffs, verification, open questions, citations, review findings, and the recommended next command.
 
 The result also prints the absolute path to `outputs/design.md`. The reviewed machine artifact is immutable JSON under `approved-designs/<design-id>/design.json`.
 

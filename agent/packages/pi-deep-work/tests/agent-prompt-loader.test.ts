@@ -44,6 +44,18 @@ describe("package prompt loader", () => {
 		await expect(new PackagePromptLoader(root).load("plan")).rejects.toThrow("empty");
 	});
 
+	it("loads focused review policy with the shared review skill", async () => {
+		const design = await loadAgentPrompt("review-design");
+		const code = await loadAgentPrompt("review-code");
+		for (const prompt of [design, code]) {
+			expect(prompt).toContain("Report only `blocker` or `important` findings");
+			expect(prompt).toContain("Omit optional suggestions and minor improvements");
+		}
+		expect(design).toContain("Prefer the smallest design that solves the current problem");
+		expect(design).toContain("Favor reversible decisions");
+		expect(code).toContain("Focus on correctness and simplicity");
+	});
+
 	it("adds language instructions only through the fixed language map", async () => {
 		const prompt = await loadAgentPrompt("implement", "rust");
 		expect(prompt).toContain("Required package skill: rust-engineering");
