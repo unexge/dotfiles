@@ -52,7 +52,7 @@ export class DeepWorkService {
 				await this.resume(command.runId, origin, ctx);
 				return;
 			case "resolve":
-				await this.resolve(command.runId, origin, ctx);
+				await this.resolve(command.runId, command.accept, origin, ctx);
 				return;
 			case "recover":
 				await this.recover(command.runId, command.challenge, origin, ctx);
@@ -141,8 +141,13 @@ export class DeepWorkService {
 		}
 	}
 
-	private async resolve(runId: string, commandOrigin: UserOrigin, ctx: ExtensionCommandContext): Promise<void> {
-		if (!ctx.hasUI) throw new Error("/deep resolve requires interactive or RPC UI mode");
+	private async resolve(
+		runId: string,
+		accept: boolean,
+		commandOrigin: UserOrigin,
+		ctx: ExtensionCommandContext,
+	): Promise<void> {
+		if (!accept && !ctx.hasUI) throw new Error("/deep resolve requires interactive or RPC UI mode");
 		const ref = await this.runtime.store.find(runId);
 		const state = await this.runtime.store.load(ref);
 		if (state.lifecycle !== "Completed" || state.outcome !== "ChangesRequired") {
@@ -153,17 +158,55 @@ export class DeepWorkService {
 		}
 		const bytes = await this.runtime.store.readArtifact(ref, state.summaryArtifact);
 		const artifact = decodeResolutionArtifact(JSON.parse(bytes.toString("utf8")));
-		const template = [
-			`Resolve deep-work ${state.workflow} run ${ref.runId.slice(0, 8)}.`,
-			"",
-			...artifact.findings.flatMap((finding) => [
+		let feedback: string;
+		if (accept) {
+			if (state.workflow !== "design") {
+				throw new Error("/deep resolve --accept supports only design runs");
+			}
+			feedback = artifact.findings.map((finding) => [
 				`## ${finding.severity}: ${finding.title}`,
 				finding.detail,
-				"Decision: <enter decision>",
-				"",
-			]),
-		].join("\n");
-		const feedback = (await ctx.ui.editor("Resolve remaining review findings", template))?.trim();
+				"Decision: Accepted as a known limitation. Proceed without addressing this finding.",
+			].join("\n")).join("\n\n");
+		} else {
+			const mode = await ctx.ui.select("Resolve remaining review findings", [
+				"Answer one by one",
+				"Edit all at once",
+				"Cancel",
+			]);
+			if (!mode || mode === "Cancel") {
+				ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
+				return;
+			}
+			if (mode === "Edit all at once") {
+				const template = [
+					`Resolve deep-work ${state.workflow} run ${ref.runId.slice(0, 8)}.`,
+					"",
+					...artifact.findings.flatMap((finding) => [
+						`## ${finding.severity}: ${finding.title}`,
+						finding.detail,
+						"Decision: <enter decision>",
+						"",
+					]),
+				].join("\n");
+				feedback = (await ctx.ui.editor("Resolve all remaining review findings", template))?.trim() ?? "";
+			} else {
+				const decisions: string[] = [];
+				for (const [index, finding] of artifact.findings.entries()) {
+					const template = [finding.detail, "", "Decision: <enter decision>"].join("\n");
+					const decision = (await ctx.ui.editor(
+						`Finding ${index + 1}/${artifact.findings.length}: ${finding.title}`,
+						template,
+					))?.trim();
+					if (!decision) {
+						ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
+						return;
+					}
+					decisions.push([`## ${finding.severity}: ${finding.title}`, decision].join("\n"));
+				}
+				feedback = decisions.join("\n\n");
+			}
+		}
 		if (!feedback) {
 			ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
 			return;
@@ -171,7 +214,8 @@ export class DeepWorkService {
 		if (feedback.includes("<enter decision>")) {
 			throw new Error("Every review finding requires an operator decision before starting the linked workflow");
 		}
-		if (!(await ctx.ui.confirm("Start linked deep-work workflow?", feedback))) {
+		const summary = `Collected ${artifact.findings.length} decision${artifact.findings.length === 1 ? "" : "s"} for ${state.workflow} run ${ref.runId.slice(0, 8)}.`;
+		if (!accept && !(await ctx.ui.confirm("Start linked deep-work workflow?", summary))) {
 			ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
 			return;
 		}

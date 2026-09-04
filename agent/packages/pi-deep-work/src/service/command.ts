@@ -4,7 +4,8 @@ export type ParsedCommand =
 	| { kind: "help" | "config" }
 	| { kind: "init"; refresh: boolean }
 	| { kind: "status" | "cancel"; runId?: string }
-	| { kind: "resume" | "resolve"; runId: string }
+	| { kind: "resume"; runId: string }
+	| { kind: "resolve"; runId: string; accept: boolean }
 	| { kind: "recover"; runId: string; challenge: string }
 	| {
 			kind: "start";
@@ -31,7 +32,7 @@ export const usage = `Usage:
   /deep unslop [--base <ref-or-revset>] [text]
   /deep status [run-id]
   /deep resume <run-id>
-  /deep resolve <run-id>
+  /deep resolve <run-id> [--accept]
   /deep cancel [run-id]
   /deep recover <run-id> <challenge>`;
 
@@ -59,9 +60,17 @@ export function parseCommand(raw: string): ParsedCommand {
 		if (tokens.length > 1) throw new CommandParseError(`/deep ${name} accepts at most one run ID`);
 		return { kind: name, ...(tokens[0] ? { runId: tokens[0] } : {}) };
 	}
-	if (name === "resume" || name === "resolve") {
-		if (tokens.length !== 1) throw new CommandParseError(`/deep ${name} requires exactly one run ID`);
+	if (name === "resume") {
+		if (tokens.length !== 1) throw new CommandParseError("/deep resume requires exactly one run ID");
 		return { kind: name, runId: tokens[0] };
+	}
+	if (name === "resolve") {
+		const accept = tokens.includes("--accept");
+		const runIds = tokens.filter((token) => token !== "--accept");
+		if (runIds.length !== 1 || runIds[0].startsWith("--") || tokens.length !== (accept ? 2 : 1)) {
+			throw new CommandParseError("/deep resolve requires one run ID and accepts only --accept");
+		}
+		return { kind: name, runId: runIds[0], accept };
 	}
 	if (name === "recover") {
 		if (tokens.length !== 2) throw new CommandParseError("/deep recover requires one run ID and one status challenge");

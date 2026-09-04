@@ -114,9 +114,10 @@ Build and fix use the same bound for design revisions and exact-candidate code r
 
 ```text
 /deep resolve <run-id>
+/deep resolve <run-id> --accept
 ```
 
-For a completed `ChangesRequired` design, build, or fix, `resolve` opens the exact remaining findings for operator decisions, confirms the answers, and starts a new lineage-linked workflow. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
+For a completed `ChangesRequired` design, build, or fix, `resolve` lets you answer the exact remaining findings one at a time or choose `Edit all at once` for the full form. For design runs, `--accept` skips the prompts, records every finding as an accepted limitation, and starts the normal linked design revision; the revised design still requires review approval before it can be built. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
 
 ### Review existing work
 
@@ -141,7 +142,7 @@ The claim must exactly match a verification contract in `.pi/pi-deep-work.json`,
 /deep status
 /deep status <run-id>
 /deep resume <run-id>
-/deep resolve <run-id>
+/deep resolve <run-id> [--accept]
 /deep cancel <run-id>
 ```
 

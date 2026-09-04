@@ -85,6 +85,7 @@ export function registerDeepWork(pi: ExtensionAPI, injected?: CommandExecutor): 
 						"/deep",
 						command.kind,
 						"runId" in command ? command.runId : undefined,
+						"accept" in command && command.accept ? "--accept" : undefined,
 						"challenge" in command ? command.challenge : undefined,
 					].filter(Boolean).join(" ");
 			try {

@@ -142,7 +142,9 @@ describe("command grammar", () => {
 			runId: "1234",
 			challenge: "available/1234",
 		});
-		expect(parseCommand("resolve 1234")).toEqual({ kind: "resolve", runId: "1234" });
+		expect(parseCommand("resolve 1234")).toEqual({ kind: "resolve", runId: "1234", accept: false });
+		expect(parseCommand("resolve 1234 --accept")).toEqual({ kind: "resolve", runId: "1234", accept: true });
+		expect(parseCommand("resolve --accept 1234")).toEqual({ kind: "resolve", runId: "1234", accept: true });
 		expect(parseCommand("design --from abc123 keep existing storage")).toEqual({
 			kind: "start",
 			workflow: "design",
@@ -184,6 +186,9 @@ describe("command grammar", () => {
 			"resume",
 			"resolve",
 			"resolve one two",
+			"resolve one --accept --accept",
+			"resolve one --unknown",
+			"resolve --accept --unknown",
 			"recover one",
 			"recover one two three",
 		]) {
@@ -256,12 +261,21 @@ describe("command service controls", () => {
 		await authority.complete("ChangesRequired", "outputs/design.json", "2026-08-25T00:00:02.000Z");
 		runtime.result = { ref, state: await runtime.store.load(ref) };
 		const service = new DeepWorkService({ sendMessage: () => undefined, appendEntry: () => undefined } as never, runtime);
+		const editorCalls: Array<{ title: string; value: string }> = [];
+		const confirmations: string[] = [];
 		const ctx = {
 			cwd: "/repo",
 			hasUI: true,
 			ui: {
-				editor: async () => "Use the external repository lease.",
-				confirm: async () => true,
+				select: async () => "Answer one by one",
+				editor: async (title: string, value: string) => {
+					editorCalls.push({ title, value });
+					return "Use the repository lease.\n\nDecision: Use the external repository lease.";
+				},
+				confirm: async (_title: string, value: string) => {
+					confirmations.push(value);
+					return true;
+				},
 				notify: () => undefined,
 				setStatus: () => undefined,
 				setWidget: () => undefined,
@@ -269,14 +283,44 @@ describe("command service controls", () => {
 			},
 		} as unknown as ExtensionCommandContext;
 		await service.execute(
-			{ kind: "resolve", runId: ref.runId.slice(0, 8) },
+			{ kind: "resolve", runId: ref.runId.slice(0, 8), accept: false },
 			userOriginFromRegisteredCommand(`/deep resolve ${ref.runId.slice(0, 8)}`),
 			ctx,
+		);
+		expect(editorCalls).toEqual([{
+			title: "Finding 1/1: Lease",
+			value: "Use the repository lease\n\nDecision: <enter decision>",
+		}]);
+		expect(confirmations).toEqual([`Collected 1 decision for design run ${ref.runId.slice(0, 8)}.`]);
+		expect(runtime.request).toMatchObject({
+			workflow: "design",
+			sourceDesignRunId: ref.runId,
+			designFeedback: "## blocker: Lease\nUse the repository lease.\n\nDecision: Use the external repository lease.",
+		});
+
+		const noPromptCtx = {
+			...ctx,
+			hasUI: false,
+			ui: {
+				...ctx.ui,
+				select: async () => { throw new Error("unexpected select"); },
+				editor: async () => { throw new Error("unexpected editor"); },
+				confirm: async () => { throw new Error("unexpected confirm"); },
+			},
+		} as unknown as ExtensionCommandContext;
+		await service.execute(
+			{ kind: "resolve", runId: ref.runId.slice(0, 8), accept: true },
+			userOriginFromRegisteredCommand(`/deep resolve ${ref.runId.slice(0, 8)} --accept`),
+			noPromptCtx,
 		);
 		expect(runtime.request).toMatchObject({
 			workflow: "design",
 			sourceDesignRunId: ref.runId,
-			designFeedback: "Use the external repository lease.",
+			designFeedback: [
+				"## blocker: Lease",
+				"Use the repository lease",
+				"Decision: Accepted as a known limitation. Proceed without addressing this finding.",
+			].join("\n"),
 		});
 	});
 
