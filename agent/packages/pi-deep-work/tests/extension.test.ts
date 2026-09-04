@@ -110,6 +110,7 @@ describe("installed extension boundary", () => {
 		expect(commandCompletions("re")).toEqual([
 			{ value: "review", label: "review" },
 			{ value: "resume", label: "resume" },
+			{ value: "resolve", label: "resolve" },
 			{ value: "recover", label: "recover" },
 		]);
 		expect(commandCompletions("review ")).toBeNull();

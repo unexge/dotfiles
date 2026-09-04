@@ -1,5 +1,9 @@
 import type { AgentGateway } from "../agents/gateway.ts";
 import { DesignApprover } from "../application/approve-design.ts";
+import {
+	DesignRevisionAgentStatusError,
+	reviseDesignUntilSettled,
+} from "../application/design-revision.ts";
 import { WritePreflight, WritePreflightError, assertWriteBaseline } from "../application/begin-write.ts";
 import { ImplementationAgent, ImplementationAgentStatusError } from "../application/implementation-agent.ts";
 import { ObservationSession } from "../application/observation-session.ts";
@@ -23,6 +27,7 @@ import { backendSnapshotDigest, type BackendTreeService } from "../gates/tree-ba
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ResolvedPolicy } from "../policy/catalog.ts";
 import type { CanonicalFinding, PanelDiagnostic } from "../review/panel.ts";
+import { renderChangesRequiredMarkdown } from "../review/outcome-markdown.ts";
 import { digestFrozenArtifact, reviewSubjectDigest } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 import { evidenceSubjectDigest, observationSubjectDigest } from "../subject/content.ts";
@@ -160,21 +165,34 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 		if (designResult.report.value.status !== "ok") {
 			throw new FixAgentStatusError("design", designResult.report.value.status);
 		}
-		if (selectorKey(designResult.report.value.testSelectors) !== selectorKey(regression.selectorProposals)) {
-			throw new FixPreconditionError("Fix design selectors differ from the clean red regression selectors");
-		}
-		const design = canonicalJson(designResult.report.value);
-		const designDigest = digestFrozenArtifact(design);
 		const redObservationDigest = observationSubjectDigest(redObserved.subject.observation);
-		await redObserved.assertCurrent();
-		const approval = await input.approver.approve({
-			caller: "fix",
-			design,
-			userOrigin: input.origin,
-			expectedObservationDigest: redObservationDigest,
-			selectorProposals: regression.selectorProposals,
-			approvedAt: input.approvedAt,
+		const revised = await reviseDesignUntilSettled({
+			initialDesign: designResult.report.value,
+			maxRevisionRounds: input.policy.machine.maxRepairRounds,
+			observed: redObserved,
+			context: [
+				`Original operator goal: ${input.origin.goal}`,
+				`Investigation: ${canonicalJson(investigation.report.value)}`,
+				`Red evidence: ${canonicalJson(regression.evidence)}`,
+				`Required regression selectors: ${canonicalJson(regression.selectorProposals)}`,
+			],
+			validate: (candidate) => {
+				if (selectorKey(candidate.testSelectors) !== selectorKey(regression.selectorProposals)) {
+					throw new FixPreconditionError("Fix design selectors differ from the clean red regression selectors");
+				}
+			},
+			approve: async (candidate) => input.approver.approve({
+				caller: "fix",
+				design: canonicalJson(candidate),
+				userOrigin: input.origin,
+				expectedObservationDigest: redObservationDigest,
+				selectorProposals: regression.selectorProposals,
+				approvedAt: input.approvedAt,
+			}),
 		});
+		const design = canonicalJson(revised.design);
+		const designDigest = digestFrozenArtifact(design);
+		const approval = revised.approval;
 		if (approval.status === "Blocked") {
 			await redObserved.assertCurrent();
 			throw new FixApprovalBlockedError(approval.diagnostics);
@@ -185,14 +203,25 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 				throw new Error("Fix design review returned a foreign subject digest");
 			}
 			await redObserved.assertCurrent();
+			const markdown = renderChangesRequiredMarkdown({
+				runId: input.ref.runId,
+				workflow: "fix",
+				goal: input.origin.goal,
+				phase: "design review",
+				findings: approval.findings,
+				iterationCount: revised.revisionRounds,
+			});
+			const markdownArtifact = await input.store.writeArtifact(input.ref, "outputs/fix.md", markdown);
 			const artifact = {
 				schemaVersion: 1,
 				proposedOutcome: "ChangesRequired",
 				authoritative: false,
 				lifecycleAuthority: "state.json",
 				goal: input.origin.goal,
+				output: [markdown, `Markdown: ${markdownArtifact.path}`, `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`].join("\n"),
 				designDigest,
-				design: designResult.report.value,
+				designRevisionRounds: revised.revisionRounds,
+				design: revised.design,
 				redRegressionSubjectDigest: regression.evidence.regressionSubjectDigest,
 				findings: approval.findings,
 			};
@@ -265,12 +294,28 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 		const current = await input.trees.captureObservation();
 		const currentDigest = backendSnapshotDigest(current);
 		const outcome = qualification.status;
+		const markdown = qualification.status === "ChangesRequired"
+			? renderChangesRequiredMarkdown({
+					runId: input.ref.runId,
+					workflow: "fix",
+					goal: input.origin.goal,
+					phase: "code review",
+					findings: qualification.findings,
+					iterationCount: input.policy.machine.maxRepairRounds,
+				})
+			: undefined;
+		const markdownArtifact = markdown
+			? await input.store.writeArtifact(input.ref, "outputs/fix.md", markdown)
+			: undefined;
 		const artifact = {
 			schemaVersion: 1,
 			proposedOutcome: outcome,
 			authoritative: false,
 			lifecycleAuthority: "state.json",
 			goal: input.origin.goal,
+			...(markdown && markdownArtifact
+				? { output: [markdown, `Markdown: ${markdownArtifact.path}`, `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`].join("\n") }
+				: {}),
 			approvedDesignId: approval.record.approvedDesignId,
 			redRegressionSubjectDigest: evidenceSubjectDigest(regression.evidence.regressionSubject),
 			implementationCheckpoint: implemented.checkpoint,
@@ -300,6 +345,7 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 			error instanceof FixPreconditionError ||
 			error instanceof FixApprovalBlockedError ||
 			(error instanceof FixAgentStatusError && error.status === "blocked") ||
+			(error instanceof DesignRevisionAgentStatusError && error.status === "blocked") ||
 			(error instanceof RegressionAgentStatusError && error.status === "blocked") ||
 			(error instanceof ImplementationAgentStatusError && error.status === "blocked")
 		) {
@@ -317,6 +363,7 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 		}
 		if (
 			error instanceof FixAgentStatusError ||
+			error instanceof DesignRevisionAgentStatusError ||
 			error instanceof RegressionAgentStatusError ||
 			error instanceof ImplementationAgentStatusError
 		) {

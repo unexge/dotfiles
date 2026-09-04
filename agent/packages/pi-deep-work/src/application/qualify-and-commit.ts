@@ -42,6 +42,7 @@ export interface QualifyAndCommitInput {
 	redEvidence?: RedRegressionEvidence;
 	checkpointSequence: number;
 	authorizedAt: string;
+	resolutionFeedback?: string;
 }
 
 type RoundResult =
@@ -190,6 +191,7 @@ export class QualifyAndCommit {
 				candidate: result.candidate,
 				approvedDesign: input.approvedDesign,
 				findings,
+				...(input.resolutionFeedback ? { operatorGuidance: input.resolutionFeedback } : {}),
 				checkpointSequence: input.checkpointSequence + round * 2 + 1,
 				createdAt: input.authorizedAt,
 			});
@@ -249,7 +251,10 @@ export class QualifyAndCommit {
 		const review = await this.panel.review({
 			subject: codeSubject,
 			frozenArtifact: rendered.patch,
-			task: `Review the exact qualified candidate for the operator goal:\n\n${input.userOrigin.goal}`,
+			task: [
+				`Review the exact qualified candidate for the operator goal:\n\n${input.userOrigin.goal}`,
+				...(input.resolutionFeedback ? [`Operator resolution guidance:\n\n${input.resolutionFeedback}`] : []),
+			].join("\n\n"),
 			recaptureSubjectDigest: async () => {
 				let current: Awaited<ReturnType<BackendTreeService["capture"]>>;
 				try {

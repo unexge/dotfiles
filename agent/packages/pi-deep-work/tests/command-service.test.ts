@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { userOriginFromRegisteredCommand } from "../src/application/user-origin.ts";
+import { RunAuthority } from "../src/application/run-authority.ts";
+import { attemptId } from "../src/application/types.ts";
 import type { AgentProgress } from "../src/agents/gateway.ts";
 import { parseCommand, CommandParseError } from "../src/service/command.ts";
 import { deepWorkAgentEntryType } from "../src/service/presentation.ts";
@@ -52,6 +54,17 @@ function context() {
 			},
 		} as unknown as ExtensionCommandContext,
 	};
+}
+
+class CapturingRuntime extends WorkflowRuntime {
+	request?: StartRequest;
+	result?: RunResult;
+
+	override async start(request: StartRequest): Promise<RunResult> {
+		this.request = request;
+		if (!this.result) throw new Error("missing captured result");
+		return this.result;
+	}
 }
 
 class DeferredRuntime extends WorkflowRuntime {
@@ -129,6 +142,7 @@ describe("command grammar", () => {
 			runId: "1234",
 			challenge: "available/1234",
 		});
+		expect(parseCommand("resolve 1234")).toEqual({ kind: "resolve", runId: "1234" });
 		expect(parseCommand("design --from abc123 keep existing storage")).toEqual({
 			kind: "start",
 			workflow: "design",
@@ -168,6 +182,8 @@ describe("command grammar", () => {
 			"review --base main --base other",
 			"unslop --base main prose",
 			"resume",
+			"resolve",
+			"resolve one two",
 			"recover one",
 			"recover one two three",
 		]) {
@@ -177,6 +193,93 @@ describe("command grammar", () => {
 });
 
 describe("command service controls", () => {
+	it("collects resolution feedback and starts a linked design workflow", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-command-resolve-"));
+		temporary.push(agentDir);
+		const runtime = new CapturingRuntime(agentDir);
+		const repository = {
+			kind: "git" as const,
+			root: "/repo",
+			sharedRoot: "/repo/.git",
+			commonDir: "/repo/.git",
+			repositoryId: "a".repeat(64),
+		};
+		const initial = decodeRunProjection({
+			...queued(randomUUID()),
+			workflow: "design",
+			goal: "Design safe cleanup",
+		}) as QueuedRun;
+		const ref = await runtime.store.create("git", initial);
+		await runtime.store.writeImmutableArtifact(ref, "run/request.json", JSON.stringify({
+			schemaVersion: 1,
+			workflow: "design",
+			goal: initial.goal,
+		}));
+		await runtime.store.writeImmutableArtifact(ref, "run/repository.json", JSON.stringify({ schemaVersion: 1, ...repository }));
+		const authority = await RunAuthority.start(
+			{
+				store: runtime.store,
+				leases: runtime.leases,
+				ref,
+				repository,
+				attemptId: attemptId(randomUUID()),
+				phase: "design",
+				pollIntervalMs: 5,
+			},
+			await runtime.store.load(ref) as QueuedRun,
+			"2026-08-25T00:00:01.000Z",
+		);
+		const design = {
+			status: "ok",
+			summary: "cleanup",
+			citations: [],
+			usage: "/deep clean",
+			constraints: [],
+			decisions: [{ decision: "lease", rationale: "safe" }],
+			dataShape: "plan",
+			interfaces: [],
+			modules: [],
+			invariants: ["safe"],
+			alternatives: [],
+			tradeoffs: [],
+			verification: ["test"],
+			openQuestions: [],
+			testSelectors: [],
+		};
+		await runtime.store.writeArtifact(ref, "outputs/design.json", JSON.stringify({
+			schemaVersion: 1,
+			proposedOutcome: "ChangesRequired",
+			goal: initial.goal,
+			design,
+			findings: [{ id: "r1:lease", reviewerId: "opus", severity: "blocker", title: "Lease", detail: "Use the repository lease" }],
+		}));
+		await authority.complete("ChangesRequired", "outputs/design.json", "2026-08-25T00:00:02.000Z");
+		runtime.result = { ref, state: await runtime.store.load(ref) };
+		const service = new DeepWorkService({ sendMessage: () => undefined, appendEntry: () => undefined } as never, runtime);
+		const ctx = {
+			cwd: "/repo",
+			hasUI: true,
+			ui: {
+				editor: async () => "Use the external repository lease.",
+				confirm: async () => true,
+				notify: () => undefined,
+				setStatus: () => undefined,
+				setWidget: () => undefined,
+				theme: { fg: (_color: string, value: string) => value },
+			},
+		} as unknown as ExtensionCommandContext;
+		await service.execute(
+			{ kind: "resolve", runId: ref.runId.slice(0, 8) },
+			userOriginFromRegisteredCommand(`/deep resolve ${ref.runId.slice(0, 8)}`),
+			ctx,
+		);
+		expect(runtime.request).toMatchObject({
+			workflow: "design",
+			sourceDesignRunId: ref.runId,
+			designFeedback: "Use the external repository lease.",
+		});
+	});
+
 	it("admits durable Cancel and renders only status metadata", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-command-service-"));
 		temporary.push(agentDir);

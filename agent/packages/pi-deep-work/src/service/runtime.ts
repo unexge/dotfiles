@@ -5,6 +5,7 @@ import {
 	type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { AgentGateway, type AgentProgressListener } from "../agents/gateway.ts";
+import type { DesignReport } from "../agents/schemas.ts";
 import { DesignApprover } from "../application/approve-design.ts";
 import { WritePreflight } from "../application/begin-write.ts";
 import { ImplementationAgent } from "../application/implementation-agent.ts";
@@ -31,7 +32,9 @@ import { PortableLeaseManager } from "../lease/repository-lease.ts";
 import { loadResolvedPolicy } from "../policy/resolver.ts";
 import { resolveModels } from "../policy/models.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
-import { ReviewPanel } from "../review/panel.ts";
+import { ReviewPanel, type CanonicalFinding } from "../review/panel.ts";
+import { decodeResolutionArtifact } from "../review/resolution.ts";
+import { digestFrozenArtifact } from "../review/subjects.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
 import {
 	loadDesignHandoff,
@@ -39,7 +42,12 @@ import {
 } from "../review/design-handoff.ts";
 import { RunStore, type RunRef } from "../store/run-store.ts";
 import { loadRunRecords, type RepositoryRecord } from "./records.ts";
-import { readBuildContext, readFixContext } from "./write-context.ts";
+import {
+	readBuildContext,
+	readFixContext,
+	type BuildWriteContext,
+	type FixWriteContext,
+} from "./write-context.ts";
 import {
 	checkpointMatchesObservation,
 	resumeBuildFromContext,
@@ -85,6 +93,16 @@ function runtimeTimestamp(target: object, key: string): string {
 	return value;
 }
 
+export interface ResolutionSource {
+	runId: string;
+	workflow: "build" | "fix";
+	artifactDigest: string;
+	findings: readonly CanonicalFinding[];
+	feedback: string;
+	design?: DesignReport;
+	writeContext?: BuildWriteContext | FixWriteContext;
+}
+
 export interface StartRequest {
 	workflow: WorkflowKind;
 	origin: UserOrigin;
@@ -93,6 +111,7 @@ export interface StartRequest {
 	sourceDesignRunId?: string;
 	designFeedback?: string;
 	designSource?: DesignHandoff;
+	resolutionSource?: ResolutionSource;
 }
 
 export interface StartHooks {
@@ -262,7 +281,23 @@ export class WorkflowRuntime {
 		}
 		const models = this.modelResolver(ctx.modelRegistry, policy.machine);
 		const origin = userOriginForPersistedGoal(commandOrigin, state.goal);
-		if (state.workflow === "fix" || state.workflow === "build") {
+		const resolutionFields = [
+			records.request.resolutionSourceRunId,
+			records.request.resolutionArtifactDigest,
+			records.request.resolutionFeedback,
+		];
+		if (resolutionFields.some(Boolean) && !resolutionFields.every(Boolean)) {
+			throw new Error("Persisted resolution lineage is incomplete");
+		}
+		const resolutionSource = records.request.resolutionSourceRunId
+			? await this.loadResolutionSource(
+					records.request.resolutionSourceRunId,
+					repository.repositoryId,
+					records.request.resolutionArtifactDigest!,
+					records.request.resolutionFeedback!,
+				)
+			: undefined;
+		if ((state.workflow === "fix" || state.workflow === "build") && !resolutionSource?.writeContext) {
 			const context =
 				state.workflow === "build" ? await readBuildContext(this.store, ref) : await readFixContext(this.store, ref);
 			if (context) return this.resumeWrite(ref, state, origin, ctx, repository, policy, models, hooks);
@@ -305,6 +340,7 @@ export class WorkflowRuntime {
 				...(records.request.unslopSource ? { unslopSource: records.request.unslopSource } : {}),
 				...(records.request.sourceDesignRunId ? { sourceDesignRunId: records.request.sourceDesignRunId } : {}),
 				...(records.request.designFeedback ? { designFeedback: records.request.designFeedback } : {}),
+				...(resolutionSource ? { resolutionSource } : {}),
 			},
 			repository.repositoryId,
 		);
@@ -603,7 +639,64 @@ export class WorkflowRuntime {
 		return { ref, state, ...recovered };
 	}
 
+	private async loadResolutionSource(
+		sourceRunId: string,
+		repositoryId: string,
+		expectedArtifactDigest: string,
+		feedback: string,
+	): Promise<ResolutionSource> {
+		const ref = await this.store.find(sourceRunId);
+		if (ref.repositoryId !== repositoryId) throw new Error("Resolution source belongs to another repository");
+		const state = await this.store.load(ref);
+		if (
+			(state.workflow !== "build" && state.workflow !== "fix") ||
+			state.lifecycle !== "Completed" ||
+			state.outcome !== "ChangesRequired"
+		) {
+			throw new Error("Resolution source is not a completed ChangesRequired write workflow");
+		}
+		const bytes = await this.store.readArtifact(ref, state.summaryArtifact);
+		if (digestFrozenArtifact(bytes) !== expectedArtifactDigest) {
+			throw new Error("Resolution source artifact digest changed");
+		}
+		const artifact = decodeResolutionArtifact(JSON.parse(bytes.toString("utf8")));
+		const writeContext = state.workflow === "build"
+			? await readBuildContext(this.store, ref)
+			: await readFixContext(this.store, ref);
+		if (!artifact.design && !writeContext) throw new Error("Resolution source has no design or write context");
+		return {
+			runId: ref.runId,
+			workflow: state.workflow,
+			artifactDigest: expectedArtifactDigest,
+			...(artifact.design ? { design: artifact.design } : {}),
+			...(writeContext ? { writeContext } : {}),
+			findings: artifact.findings,
+			feedback,
+		};
+	}
+
 	private async resolveDesignSource(request: StartRequest, repositoryId: string): Promise<StartRequest> {
+		if (request.resolutionSource) {
+			if (
+				(request.workflow !== "build" && request.workflow !== "fix") ||
+				request.workflow !== request.resolutionSource.workflow ||
+				request.sourceDesignRunId ||
+				request.designSource ||
+				request.designFeedback
+			) {
+				throw new Error("A resolution source must match its write workflow without another design source");
+			}
+			const loaded = await this.loadResolutionSource(
+				request.resolutionSource.runId,
+				repositoryId,
+				request.resolutionSource.artifactDigest,
+				request.resolutionSource.feedback,
+			);
+			if (canonicalJson(loaded) !== canonicalJson(request.resolutionSource)) {
+				throw new Error("Resolution source contradicts its durable artifact");
+			}
+			return { ...request, resolutionSource: loaded };
+		}
 		if (!request.sourceDesignRunId) {
 			if (request.designFeedback || request.designSource) throw new Error("Design feedback requires a source design run");
 			return request;
@@ -655,6 +748,13 @@ export class WorkflowRuntime {
 					...(request.unslopSource ? { unslopSource: request.unslopSource } : {}),
 					...(request.sourceDesignRunId ? { sourceDesignRunId: request.sourceDesignRunId } : {}),
 					...(request.designFeedback ? { designFeedback: request.designFeedback } : {}),
+					...(request.resolutionSource
+						? {
+								resolutionSourceRunId: request.resolutionSource.runId,
+								resolutionArtifactDigest: request.resolutionSource.artifactDigest,
+								resolutionFeedback: request.resolutionSource.feedback,
+							}
+						: {}),
 				}),
 			),
 		);
@@ -769,6 +869,7 @@ export class WorkflowRuntime {
 					store: this.store,
 					ref,
 					concurrency: policy.machine.concurrency,
+					maxRevisionRounds: policy.machine.maxRepairRounds,
 					...(request.designSource ? { source: request.designSource, feedback: request.designFeedback! } : {}),
 					get approvedAt() {
 						return runtimeTimestamp(this, "approvedAt");
@@ -831,10 +932,86 @@ export class WorkflowRuntime {
 			backend,
 			repair,
 		);
+		if (request.resolutionSource?.writeContext) {
+			const sourceRef = await this.store.find(request.resolutionSource.runId);
+			const sourceContext = request.resolutionSource.writeContext;
+			const localContext = request.workflow === "build"
+				? await readBuildContext(this.store, ref)
+				: await readFixContext(this.store, ref);
+			const context = localContext ?? sourceContext;
+			if (context.workflow !== request.workflow) throw new Error("Resolution context workflow mismatch");
+			if (context.stage !== "red") {
+				await this.assertApprovedDesign(localContext ? ref : sourceRef, context.approvedDesign);
+			}
+			let sourceCheckpoint: MutationPhaseCheckpoint;
+			let checkpointRef: RunRef;
+			if (context.stage === "implemented") {
+				sourceCheckpoint = context.implementationCheckpoint;
+				checkpointRef = localContext ? ref : sourceRef;
+			} else if (context.workflow === "fix") {
+				sourceCheckpoint = context.regressionCheckpoint;
+				checkpointRef = sourceRef;
+			} else {
+				throw new Error("Build resolution has no implementation checkpoint");
+			}
+			await this.assertDurableCheckpoint(checkpointRef, sourceCheckpoint);
+			const expected = sourceCheckpoint.subjectDigest;
+			const current = await trees.captureObservation();
+			if (observationSubjectDigest(current.observation) !== expected) {
+				throw new Error("Resolution checkout differs from the source workflow checkpoint");
+			}
+			const completedAt = () => new Date().toISOString();
+			if (context.workflow === "build") {
+				await resumeBuildFromContext({
+					context,
+					origin: request.origin,
+					authority,
+					gateway,
+					trees,
+					implementation,
+					qualifier,
+					store: this.store,
+					ref,
+					completedAt,
+					resolutionFeedback: request.resolutionSource.feedback,
+				});
+			} else {
+				await resumeFixFromContext({
+					context,
+					origin: request.origin,
+					authority,
+					gateway,
+					trees,
+					implementation,
+					qualifier,
+					store: this.store,
+					ref,
+					completedAt,
+					resolutionFeedback: request.resolutionSource.feedback,
+					...(request.resolutionSource.design ? { resolutionDesign: request.resolutionSource.design } : {}),
+					approver,
+					catalog,
+					gates,
+					evidenceRef: sourceRef,
+				});
+			}
+			return;
+		}
 		if (request.workflow === "build") {
 			await runBuildWorkflow({
 				origin: request.origin,
 				...(request.designSource ? { sourceDesign: request.designSource, designFeedback: request.designFeedback } : {}),
+				...(request.resolutionSource?.design
+					? {
+							resolutionSource: {
+								runId: request.resolutionSource.runId,
+								artifactDigest: request.resolutionSource.artifactDigest,
+								design: request.resolutionSource.design,
+								findings: request.resolutionSource.findings,
+								feedback: request.resolutionSource.feedback,
+							},
+						}
+					: {}),
 				policy,
 				catalog,
 				authority,

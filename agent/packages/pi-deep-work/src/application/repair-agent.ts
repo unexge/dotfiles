@@ -21,6 +21,7 @@ export interface RepairInput {
 	findings: readonly CanonicalFinding[];
 	checkpointSequence: number;
 	createdAt: string;
+	operatorGuidance?: string;
 	language?: AgentLanguage;
 }
 
@@ -74,6 +75,7 @@ export class RepairAgent {
 						`Approved design: ${input.approvedDesign.approvedDesignId}`,
 						`Candidate: ${canonicalJson(input.candidate)}`,
 						`Findings: ${canonicalJson(input.findings)}`,
+						...(input.operatorGuidance ? ["Operator resolution guidance:", input.operatorGuidance] : []),
 						"Return exact changed paths and an empty testSelectors array.",
 					].join("\n\n"),
 					...(input.language ? { language: input.language } : {}),

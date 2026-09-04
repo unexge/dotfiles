@@ -17,6 +17,7 @@ The extension registers only `/deep`:
 /deep unslop [--base <ref-or-revset>] [text]
 /deep status [run-id]
 /deep resume <run-id>
+/deep resolve <run-id>
 /deep cancel [run-id]
 /deep recover <run-id> <challenge>
 ```
@@ -64,7 +65,9 @@ Ignored-only churn is excluded. The package does not materialize hidden snapshot
 - `unslop`: `UnslopReportProduced`
 - `review`: `ReviewApproved` or normal `ChangesRequired`
 - `verify`: deterministic `Verified`, `NotVerified`, or `Inconclusive`
-- `design`: `DesignApproved` or normal `ChangesRequired`. Every completed design writes deterministic human-readable Markdown from the structured reviewed design. `--from` resolves a completed same-repository design, supplies its exact structured artifact, findings, and operator feedback to the revision, and records lineage.
+- `design`: `DesignApproved` or normal `ChangesRequired`. Design approval revises blocker and important findings and submits each complete replacement design to a fresh panel, bounded by `maxRepairRounds`; suggestion-only panels approve. Every completed design writes deterministic human-readable Markdown from the structured reviewed design. `--from` resolves a completed same-repository design, supplies its exact structured artifact, findings, and operator feedback to the revision, and records lineage.
+
+`/deep resolve` accepts a completed same-repository `ChangesRequired` design, build, or fix, collects and confirms operator answers, and starts a new linked workflow. The linked request binds the source run and summary artifact digest. Mutation-bearing continuations require the live checkout and durable source evidence to match the exact recorded checkpoint before fresh qualification and review.
 
 `build --design` accepts only a completed same-repository `DesignApproved` run with a valid immutable record and matching artifact digest. The live write observation must still match the standalone design observation. Build then produces and reviews a behavior-bound derivative; the standalone record never directly authorizes implementation or publication.
 
@@ -84,7 +87,7 @@ Both fix/build use:
 
 ```text
 normalize exactly twice -> seal candidate -> quick gates -> full gates
--> behavior observations -> complete code review panel -> bounded repair
+-> behavior observations -> complete code review panel -> bounded repair and fresh review
 -> deterministic Verified record -> private authorization -> local transaction
 ```
 

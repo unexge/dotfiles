@@ -344,7 +344,17 @@ async function approvedSource(
 
 async function run(
 	values: Awaited<ReturnType<typeof fixture>>,
-	options: { sourceDesign?: DesignHandoff; designFeedback?: string } = {},
+	options: {
+		sourceDesign?: DesignHandoff;
+		designFeedback?: string;
+		resolutionSource?: {
+			runId: string;
+			artifactDigest: string;
+			design: ReturnType<typeof designReport>;
+			findings: readonly { id: string; reviewerId: string; severity: "blocker" | "important" | "suggestion"; title: string; detail: string }[];
+			feedback: string;
+		};
+	} = {},
 ) {
 	return runBuildWorkflow({
 		origin: userOriginFromRegisteredCommand("Build the feature"),
@@ -388,6 +398,21 @@ describe("build workflow", () => {
 				},
 			}),
 		);
+	});
+
+	it("carries a resolved rejected design into a fresh build review", async () => {
+		const values = await fixture();
+		await run(values, {
+			resolutionSource: {
+				runId: randomUUID(),
+				artifactDigest: "8".repeat(64),
+				design: designReport(),
+				findings: [{ id: "r1:gap", reviewerId: "opus", severity: "blocker", title: "Gap", detail: "Fix ownership" }],
+				feedback: "Keep ownership in the existing service.",
+			},
+		});
+		expect(values.tasks.join("\n")).toContain("Prior rejected design");
+		expect(values.tasks.join("\n")).toContain("Keep ownership in the existing service.");
 	});
 
 	it("blocks a build when the approved design observation drifted", async () => {
@@ -446,6 +471,9 @@ describe("build workflow", () => {
 		expect(result).toMatchObject({ status: "ChangesRequired", findings: [{ severity: "important" }] });
 		expect(values.implementation.implement).not.toHaveBeenCalled();
 		expect(await values.store.load(values.ref)).toMatchObject({ lifecycle: "Completed", outcome: "ChangesRequired" });
+		expect(await readFile(join(values.ref.directory, "artifacts/outputs/build.md"), "utf8")).toContain(
+			`/deep resolve ${values.ref.runId.slice(0, 8)}`,
+		);
 	});
 
 	it("maps frame, design, approval, implementation, and qualification failures", async () => {

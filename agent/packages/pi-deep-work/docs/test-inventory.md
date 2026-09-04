@@ -4,9 +4,9 @@ The package has one installed execution graph. All package tests live under `tes
 
 ## Command and capability boundary
 
-- One registered `/deep` command with strict grammar and completion, including linked design revision and approved-design build handoff.
+- One registered `/deep` command with strict grammar and completion, including linked design revision, interactive resolution, and approved-design build handoff.
 - No `registerTool`, manifest prompt, natural-language trigger, or child-session extension loading.
-- Unforgeable `UserOrigin` required for start/resume/cancel/recover.
+- Unforgeable `UserOrigin` required for start/resume/resolve/cancel/recover.
 - Per-run UI keys, durable controls, shutdown fencing, and timeout warning.
 - Full/unambiguous IDs; status-issued lease recovery challenges; audited dead/malformed lease recovery; malformed runs isolated.
 
@@ -57,7 +57,7 @@ Neither backend pushes.
 ## Workflows and runtime
 
 - `how`, text/diff `unslop`, `review`, standalone `verify`, and standalone `design` positive/negative/drift/control outcomes.
-- Deterministic design Markdown, structured constraints/decisions/alternatives, complete review findings, same-repository revision lineage, and digest-validated approved-design handoff.
+- Deterministic design Markdown, structured constraints/decisions/alternatives, bounded substantive-finding revision, complete review findings, same-repository revision lineage, and digest-validated approved-design handoff.
 - Build derivatives bind source design identity, use every configured behavior observation without selectors, and reject changed repository observations before implementation.
 - Git/jj `beginWrite`; dirty/conflict/merge/immutable/mainline ancestry rejection.
 - Mutation-owned build/fix implementation and repair checkpoints.

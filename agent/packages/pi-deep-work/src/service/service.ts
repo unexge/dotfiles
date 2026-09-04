@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { UserOrigin } from "../application/user-origin.ts";
-import { assertUserOrigin } from "../application/user-origin.ts";
+import { assertUserOrigin, userOriginForPersistedGoal } from "../application/user-origin.ts";
 import type { RunProjection } from "../store/schemas.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
+import { decodeResolutionArtifact } from "../review/resolution.ts";
+import { digestFrozenArtifact } from "../review/subjects.ts";
 import type { RunRef } from "../store/run-store.ts";
 import { captureGitObservation } from "../vcs/git-backend.ts";
 import { captureJjObservation } from "../vcs/jj-backend.ts";
@@ -11,7 +13,8 @@ import { detectRepository } from "../vcs/detect.ts";
 import { commandRunner } from "../vcs/runner.ts";
 import { VcsDetectionError } from "../vcs/types.ts";
 import { loadRunRecords } from "./records.ts";
-import { WorkflowRuntime, type StartRequest } from "./runtime.ts";
+import { readBuildContext, readFixContext } from "./write-context.ts";
+import { WorkflowRuntime, type ResolutionSource, type StartRequest } from "./runtime.ts";
 import type { ParsedCommand } from "./command.ts";
 import {
 	DeepWorkRunPresentation,
@@ -47,6 +50,9 @@ export class DeepWorkService {
 				return;
 			case "resume":
 				await this.resume(command.runId, origin, ctx);
+				return;
+			case "resolve":
+				await this.resolve(command.runId, origin, ctx);
 				return;
 			case "recover":
 				await this.recover(command.runId, command.challenge, origin, ctx);
@@ -86,9 +92,10 @@ export class DeepWorkService {
 		command: Extract<ParsedCommand, { kind: "start" }>,
 		origin: UserOrigin,
 		ctx: ExtensionCommandContext,
+		requestOverride?: StartRequest,
 	): Promise<void> {
 		if (this.shuttingDown) throw new Error("Deep-work is shutting down and cannot start another run");
-		const request: StartRequest = {
+		const request: StartRequest = requestOverride ?? {
 			workflow: command.workflow,
 			origin,
 			...(command.base ? { base: command.base } : {}),
@@ -132,6 +139,78 @@ export class DeepWorkService {
 		} finally {
 			this.pendingOperations.delete(completion);
 		}
+	}
+
+	private async resolve(runId: string, commandOrigin: UserOrigin, ctx: ExtensionCommandContext): Promise<void> {
+		if (!ctx.hasUI) throw new Error("/deep resolve requires interactive or RPC UI mode");
+		const ref = await this.runtime.store.find(runId);
+		const state = await this.runtime.store.load(ref);
+		if (state.lifecycle !== "Completed" || state.outcome !== "ChangesRequired") {
+			throw new Error(`run ${ref.runId.slice(0, 8)} is not completed with ChangesRequired`);
+		}
+		if (state.workflow !== "design" && state.workflow !== "build" && state.workflow !== "fix") {
+			throw new Error(`/deep resolve does not support ${state.workflow} runs`);
+		}
+		const bytes = await this.runtime.store.readArtifact(ref, state.summaryArtifact);
+		const artifact = decodeResolutionArtifact(JSON.parse(bytes.toString("utf8")));
+		const template = [
+			`Resolve deep-work ${state.workflow} run ${ref.runId.slice(0, 8)}.`,
+			"",
+			...artifact.findings.flatMap((finding) => [
+				`## ${finding.severity}: ${finding.title}`,
+				finding.detail,
+				"Decision: <enter decision>",
+				"",
+			]),
+		].join("\n");
+		const feedback = (await ctx.ui.editor("Resolve remaining review findings", template))?.trim();
+		if (!feedback) {
+			ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
+			return;
+		}
+		if (feedback.includes("<enter decision>")) {
+			throw new Error("Every review finding requires an operator decision before starting the linked workflow");
+		}
+		if (!(await ctx.ui.confirm("Start linked deep-work workflow?", feedback))) {
+			ctx.ui.notify("Resolution cancelled; no linked workflow was started.", "info");
+			return;
+		}
+		const origin = userOriginForPersistedGoal(commandOrigin, state.goal);
+		if (state.workflow === "design") {
+			await this.start(
+				{
+					kind: "start",
+					workflow: "design",
+					goal: state.goal,
+					sourceDesignRunId: ref.runId,
+					designFeedback: feedback,
+				},
+				origin,
+				ctx,
+			);
+			return;
+		}
+		const writeContext = state.workflow === "build"
+			? await readBuildContext(this.runtime.store, ref)
+			: await readFixContext(this.runtime.store, ref);
+		if (!writeContext && !artifact.design) {
+			throw new Error("ChangesRequired artifact has no revisable design or durable write context");
+		}
+		const resolutionSource: ResolutionSource = {
+			runId: ref.runId,
+			workflow: state.workflow,
+			artifactDigest: digestFrozenArtifact(bytes),
+			...(artifact.design ? { design: artifact.design } : {}),
+			...(writeContext ? { writeContext } : {}),
+			findings: artifact.findings,
+			feedback,
+		};
+		await this.start(
+			{ kind: "start", workflow: state.workflow, goal: state.goal },
+			origin,
+			ctx,
+			{ workflow: state.workflow, origin, resolutionSource },
+		);
 	}
 
 	private async resume(runId: string, origin: UserOrigin, ctx: ExtensionCommandContext): Promise<void> {

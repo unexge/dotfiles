@@ -187,6 +187,8 @@ async function fixture(kind: "git" | "jj" = "git") {
 	let synthesisStatus: "ok" | "blocked" | "failed" = "ok";
 	let panelFailure = false;
 	let changesRequired = false;
+	let remainingRequiredReviews = 0;
+	let revisionCount = 0;
 	const candidateJobs: Array<{ task: string }> = [];
 	let synthesisTask = "";
 	const gateway = {
@@ -199,17 +201,20 @@ async function fixture(kind: "git" | "jj" = "git") {
 		},
 		run: async (job: { task: string }) => {
 			synthesisTask = job.task;
-			return { report: { value: designReport("synthesis", synthesisStatus) } };
+			const revision = job.task.includes("Revise the complete design");
+			if (revision) revisionCount++;
+			return { report: { value: designReport(revision ? `revision-${revisionCount}` : "synthesis", synthesisStatus) } };
 		},
 		runManySettled: async () => {
 			if (panelFailure) return [{ ok: false, error: "reviewer unavailable" }];
+			const requiresChanges = changesRequired || remainingRequiredReviews-- > 0;
 			const result: AgentResult<"review-design"> = {
 				kind: "review-design",
 				role: "design-reviewer",
 				model: reviewerModel,
 				turns: 1,
 				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
-				report: { source: "untrusted-agent", value: reviewReport(changesRequired) as never },
+				report: { source: "untrusted-agent", value: reviewReport(requiresChanges) as never },
 			};
 			return [{ ok: true, result }] as AgentSettlement<"review-design">[];
 		},
@@ -264,6 +269,10 @@ async function fixture(kind: "git" | "jj" = "git") {
 		setChangesRequired() {
 			changesRequired = true;
 		},
+		setChangesThenApprove(count = 1) {
+			remainingRequiredReviews = count;
+		},
+		revisionCount: () => revisionCount,
 		useForeignApproverCapture() {
 			foreignApproverCapture = true;
 		},
@@ -281,7 +290,7 @@ async function fixture(kind: "git" | "jj" = "git") {
 
 async function run(
 	values: Awaited<ReturnType<typeof fixture>>,
-	options: { source?: DesignHandoff; feedback?: string } = {},
+	options: { source?: DesignHandoff; feedback?: string; maxRevisionRounds?: number } = {},
 ) {
 	return runDesignWorkflow({
 		origin: userOriginFromRegisteredCommand("Design a cache"),
@@ -292,6 +301,7 @@ async function run(
 		store: values.store,
 		ref: values.ref,
 		concurrency: 2,
+		maxRevisionRounds: 0,
 		approvedAt: "2026-08-25T00:00:02.000Z",
 		completedAt: "2026-08-25T00:00:03.000Z",
 		...options,
@@ -369,6 +379,17 @@ describe("design workflow", () => {
 		);
 	});
 
+	it("revises substantive findings before approving the design", async () => {
+		const values = await fixture();
+		values.setChangesThenApprove();
+		const result = await run(values, { maxRevisionRounds: 2 });
+		expect(result.outcome).toBe("DesignApproved");
+		expect(values.revisionCount()).toBe(1);
+		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
+		expect(artifact.designRevisionRounds).toBe(1);
+		expect(artifact.design.summary).toBe("revision-1");
+	});
+
 	it("publishes complete important findings as ChangesRequired", async () => {
 		const values = await fixture();
 		values.setChangesRequired();
@@ -381,7 +402,7 @@ describe("design workflow", () => {
 		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
 		expect(artifact.approval.reviewSubjectDigest).toMatch(/^[0-9a-f]{64}$/);
 		expect(artifact.findings).toEqual(result.findings);
-		expect(artifact.output).toContain(`Revise: /deep design --from ${values.ref.runId.slice(0, 8)} <feedback>`);
+		expect(artifact.output).toContain(`Resolve: /deep resolve ${values.ref.runId.slice(0, 8)}`);
 		expect(await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8")).toContain(
 			"### important: Design gap",
 		);

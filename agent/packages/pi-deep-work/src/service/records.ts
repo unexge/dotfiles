@@ -22,6 +22,9 @@ export const RequestRecordSchema = Type.Object(
 		base: Type.Optional(nonEmpty),
 		sourceDesignRunId: Type.Optional(uuid),
 		designFeedback: Type.Optional(nonEmpty),
+		resolutionSourceRunId: Type.Optional(uuid),
+		resolutionArtifactDigest: Type.Optional(digest),
+		resolutionFeedback: Type.Optional(nonEmpty),
 		unslopSource: Type.Optional(
 			Type.Union([
 				Type.Object({ kind: Type.Literal("text"), text: nonEmpty }, { additionalProperties: false }),

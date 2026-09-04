@@ -1,5 +1,10 @@
 import type { AgentGateway } from "../agents/gateway.ts";
+import type { DesignReport } from "../agents/schemas.ts";
 import { DesignApprover } from "../application/approve-design.ts";
+import {
+	DesignRevisionAgentStatusError,
+	reviseDesignUntilSettled,
+} from "../application/design-revision.ts";
 import {
 	WritePreflight,
 	WritePreflightError,
@@ -21,6 +26,7 @@ import { backendSnapshotDigest, type BackendTreeService } from "../gates/tree-ba
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ResolvedPolicy } from "../policy/catalog.ts";
 import type { CanonicalFinding, PanelDiagnostic } from "../review/panel.ts";
+import { renderChangesRequiredMarkdown } from "../review/outcome-markdown.ts";
 import type { DesignHandoff } from "../review/design-handoff.ts";
 import { digestFrozenArtifact, reviewSubjectDigest } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
@@ -63,6 +69,13 @@ interface BuildWorkflowInput {
 	completedAt: string;
 	sourceDesign?: DesignHandoff;
 	designFeedback?: string;
+	resolutionSource?: {
+		runId: string;
+		artifactDigest: string;
+		design: DesignReport;
+		findings: readonly CanonicalFinding[];
+		feedback: string;
+	};
 }
 
 export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<BuildWorkflowResult> {
@@ -112,12 +125,24 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 					"Preserve its accepted decisions. Add only build-specific detail and trusted behavior selectors.",
 				].join("\n\n")
 			: undefined;
+		const resolutionContext = input.resolutionSource
+			? [
+					`Resolve completed build run ${input.resolutionSource.runId}:`,
+					"Prior rejected design:",
+					canonicalJson(input.resolutionSource.design),
+					"Unresolved review findings:",
+					canonicalJson(input.resolutionSource.findings),
+					"Operator resolution:",
+					input.resolutionSource.feedback,
+				].join("\n\n")
+			: undefined;
 		const frame = await observed.run({
 			kind: "plan",
 			label: "frame build",
 			task: [
 				`Frame the approved-build problem, success criteria, and smallest implementation steps for:\n\n${input.origin.goal}`,
 				...(sourceContext ? [sourceContext] : []),
+				...(resolutionContext ? [resolutionContext] : []),
 			].join("\n\n"),
 		});
 		if (frame.report.value.status !== "ok") throw new BuildAgentStatusError("frame", frame.report.value.status);
@@ -127,6 +152,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			task: [
 				`Design the implementation for the operator goal: ${input.origin.goal}`,
 				...(sourceContext ? [sourceContext] : []),
+				...(resolutionContext ? [resolutionContext] : []),
 				"Use this validated frame:",
 				canonicalJson(frame.report.value),
 				"All configured behavior observations are coordinator-selected. Return an empty testSelectors array.",
@@ -135,17 +161,28 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 		if (designResult.report.value.status !== "ok") {
 			throw new BuildAgentStatusError("design", designResult.report.value.status);
 		}
-		const design = canonicalJson(designResult.report.value);
-		const designDigest = digestFrozenArtifact(design);
-		await observed.assertCurrent();
-		const approval = await input.approver.approve({
-			caller: "build",
-			design,
-			userOrigin: input.origin,
-			expectedObservationDigest: initialObservationDigest,
-			approvedAt: input.approvedAt,
-			...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
+		const revised = await reviseDesignUntilSettled({
+			initialDesign: designResult.report.value,
+			maxRevisionRounds: input.policy.machine.maxRepairRounds,
+			observed,
+			context: [
+				`Original operator goal: ${input.origin.goal}`,
+				...(sourceContext ? [sourceContext] : []),
+				...(resolutionContext ? [resolutionContext] : []),
+				"All configured behavior observations are coordinator-selected. Return an empty testSelectors array.",
+			],
+			approve: async (candidate) => input.approver.approve({
+				caller: "build",
+				design: canonicalJson(candidate),
+				userOrigin: input.origin,
+				expectedObservationDigest: initialObservationDigest,
+				approvedAt: input.approvedAt,
+				...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
+			}),
 		});
+		const design = canonicalJson(revised.design);
+		const designDigest = digestFrozenArtifact(design);
+		const approval = revised.approval;
 		if (approval.status === "Blocked") {
 			await observed.assertCurrent();
 			throw new BuildApprovalBlockedError(approval.diagnostics);
@@ -156,17 +193,31 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				throw new Error("Build design review returned a foreign subject digest");
 			}
 			await observed.assertCurrent();
+			const markdown = renderChangesRequiredMarkdown({
+				runId: input.ref.runId,
+				workflow: "build",
+				goal: input.origin.goal,
+				phase: "design review",
+				findings: approval.findings,
+				iterationCount: revised.revisionRounds,
+			});
+			const markdownArtifact = await input.store.writeArtifact(input.ref, "outputs/build.md", markdown);
 			const artifact = {
 				schemaVersion: 1,
 				proposedOutcome: "ChangesRequired",
 				authoritative: false,
 				lifecycleAuthority: "state.json",
 				goal: input.origin.goal,
+				...(input.resolutionSource
+					? { resolutionSourceRunId: input.resolutionSource.runId, resolutionArtifactDigest: input.resolutionSource.artifactDigest }
+					: {}),
+				output: [markdown, `Markdown: ${markdownArtifact.path}`, `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`].join("\n"),
 				...(sourceIdentity
 					? { sourceDesignRunId: sourceIdentity.runId, sourceApprovedDesignId: sourceIdentity.approvedDesignId }
 					: {}),
 				designDigest,
-				design: designResult.report.value,
+				designRevisionRounds: revised.revisionRounds,
+				design: revised.design,
 				reviewSubjectDigest: approval.subjectDigest,
 				findings: approval.findings,
 			};
@@ -235,12 +286,28 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 		const current = await input.trees.captureObservation();
 		const currentDigest = backendSnapshotDigest(current);
 		const outcome = qualification.status;
+		const markdown = qualification.status === "ChangesRequired"
+			? renderChangesRequiredMarkdown({
+					runId: input.ref.runId,
+					workflow: "build",
+					goal: input.origin.goal,
+					phase: "code review",
+					findings: qualification.findings,
+					iterationCount: input.policy.machine.maxRepairRounds,
+				})
+			: undefined;
+		const markdownArtifact = markdown
+			? await input.store.writeArtifact(input.ref, "outputs/build.md", markdown)
+			: undefined;
 		const artifact = {
 			schemaVersion: 1,
 			proposedOutcome: outcome,
 			authoritative: false,
 			lifecycleAuthority: "state.json",
 			goal: input.origin.goal,
+			...(markdown && markdownArtifact
+				? { output: [markdown, `Markdown: ${markdownArtifact.path}`, `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`].join("\n") }
+				: {}),
 			...(sourceIdentity
 				? { sourceDesignRunId: sourceIdentity.runId, sourceApprovedDesignId: sourceIdentity.approvedDesignId }
 				: {}),
@@ -270,6 +337,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			error instanceof BuildContextCheckpointError ||
 			error instanceof BuildApprovalBlockedError ||
 			(error instanceof BuildAgentStatusError && error.status === "blocked") ||
+			(error instanceof DesignRevisionAgentStatusError && error.status === "blocked") ||
 			(error instanceof ImplementationAgentStatusError && error.status === "blocked")
 		) {
 			await input.authority.block(error.message, input.completedAt);
@@ -284,7 +352,11 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			});
 			return { status: "Blocked", artifactPath, reason: error.message };
 		}
-		if (error instanceof BuildAgentStatusError || error instanceof ImplementationAgentStatusError) {
+		if (
+			error instanceof BuildAgentStatusError ||
+			error instanceof DesignRevisionAgentStatusError ||
+			error instanceof ImplementationAgentStatusError
+		) {
 			await input.authority.fail(error.message, input.completedAt);
 			await writeDiagnostic(input, artifactPath, "Failed", error.message);
 			return { status: "Failed", artifactPath, reason: error.message };

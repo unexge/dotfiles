@@ -52,7 +52,7 @@ Refresh discovered checks after manifest changes:
 /deep design Add resumable uploads with bounded retries
 ```
 
-A design run creates two candidates, synthesizes one structured design, and sends it to every configured reviewer. It ends with `DesignApproved` or `ChangesRequired`. The final result includes readable Markdown covering usage, constraints, decisions, data shape, interfaces, modules, invariants, rejected alternatives, tradeoffs, verification, open questions, citations, and review findings.
+A design run creates two candidates, synthesizes one structured design, and sends it to every configured reviewer. Blocker and important findings are revised and reviewed again up to `maxRepairRounds`; only findings that remain after the configured iterations produce `ChangesRequired`. Suggestions do not block approval. The final result includes readable Markdown covering usage, constraints, decisions, data shape, interfaces, modules, invariants, rejected alternatives, tradeoffs, verification, open questions, citations, review findings, and the recommended next command.
 
 The result also prints the absolute path to `outputs/design.md`. The reviewed machine artifact is immutable JSON under `approved-designs/<design-id>/design.json`.
 
@@ -100,7 +100,7 @@ frame goal -> design -> design review -> implement -> quick/full gates
 -> deterministic verification -> local commit
 ```
 
-A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
+Build and fix use the same bound for design revisions and exact-candidate code repairs. A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
 
 ### Fix a bug
 
@@ -109,6 +109,14 @@ A successful build commits automatically. There is no human approval pause befor
 ```
 
 `fix` requires trusted red evidence for the regression, then requires the same observation to pass on the final candidate before committing.
+
+### Resolve exhausted design findings
+
+```text
+/deep resolve <run-id>
+```
+
+For a completed `ChangesRequired` design, build, or fix, `resolve` opens the exact remaining findings for operator decisions, confirms the answers, and starts a new lineage-linked workflow. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
 
 ### Review existing work
 
@@ -133,6 +141,7 @@ The claim must exactly match a verification contract in `.pi/pi-deep-work.json`,
 /deep status
 /deep status <run-id>
 /deep resume <run-id>
+/deep resolve <run-id>
 /deep cancel <run-id>
 ```
 

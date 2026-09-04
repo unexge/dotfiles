@@ -161,6 +161,7 @@ export function renderDesignMarkdown(input: {
 	design: DesignReport;
 	designDigest: string;
 	outcome: "DesignApproved" | "ChangesRequired";
+	revisionRounds: number;
 	findings: readonly CanonicalFinding[];
 	approvedDesignId?: string;
 	source?: DesignLineage;
@@ -174,7 +175,9 @@ export function renderDesignMarkdown(input: {
 		"",
 		`# Design: ${input.goal}`,
 		"",
-		`**Status:** ${input.outcome === "DesignApproved" ? "Approved" : "Changes required"}`,
+		`**Status:** ${input.outcome === "DesignApproved" ? (input.findings.length > 0 ? "Approved with suggestions" : "Approved") : "Changes required"}`,
+		"",
+		`**Corrective iterations completed:** ${input.revisionRounds}`,
 	];
 	if (input.source) {
 		lines.push(
@@ -271,6 +274,11 @@ export function renderDesignMarkdown(input: {
 					"",
 				])
 			: ["No findings.", ""]),
+		"## Recommended next step",
+		"",
+		input.outcome === "DesignApproved"
+			? `Build this design with \`/deep build --design ${input.runId.slice(0, 8)}\`.`
+			: `Resolve the remaining decisions with \`/deep resolve ${input.runId.slice(0, 8)}\`.`,
 	);
 	return `${lines.join("\n").trimEnd()}\n`;
 }

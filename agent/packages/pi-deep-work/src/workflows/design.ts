@@ -1,5 +1,9 @@
 import type { AgentGateway } from "../agents/gateway.ts";
 import { DesignApprover } from "../application/approve-design.ts";
+import {
+	DesignRevisionAgentStatusError,
+	reviseDesignUntilSettled,
+} from "../application/design-revision.ts";
 import { ObservationSession } from "../application/observation-session.ts";
 import {
 	ControlAcceptedError,
@@ -38,6 +42,7 @@ interface DesignWorkflowInput {
 	store: RunStore;
 	ref: RunRef;
 	concurrency: number;
+	maxRevisionRounds: number;
 	approvedAt: string;
 	completedAt: string;
 	source?: DesignHandoff;
@@ -101,17 +106,23 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 		if (synthesis.report.value.status !== "ok") {
 			throw new DesignAgentStatusError("synthesis", synthesis.report.value.status);
 		}
-		const design = canonicalJson(synthesis.report.value);
-		const designDigest = digestFrozenArtifact(design);
-		await observed.assertCurrent();
-		// Approved-design records are idempotent intermediate evidence and intentionally never GC'd; only a matching state.json outcome is authoritative.
-		const approval = await input.approver.approve({
-			caller: "design",
-			design,
-			userOrigin: input.origin,
-			expectedObservationDigest: initialObservationDigest,
-			approvedAt: input.approvedAt,
+		const revised = await reviseDesignUntilSettled({
+			initialDesign: synthesis.report.value,
+			maxRevisionRounds: input.maxRevisionRounds,
+			observed,
+			context: [`Original operator goal: ${input.origin.goal}`, ...(sourceContext ? [sourceContext] : [])],
+			// Approved-design records are idempotent intermediate evidence and intentionally never GC'd; only a matching state.json outcome is authoritative.
+			approve: async (candidate) => input.approver.approve({
+				caller: "design",
+				design: canonicalJson(candidate),
+				userOrigin: input.origin,
+				expectedObservationDigest: initialObservationDigest,
+				approvedAt: input.approvedAt,
+			}),
 		});
+		const design = canonicalJson(revised.design);
+		const designDigest = digestFrozenArtifact(design);
+		const approval = revised.approval;
 		if (approval.status === "Blocked") {
 			await observed.assertCurrent();
 			throw new DesignApprovalBlockedError(approval.diagnostics);
@@ -162,9 +173,10 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 		const markdown = renderDesignMarkdown({
 			runId: input.ref.runId,
 			goal: input.origin.goal,
-			design: synthesis.report.value,
+			design: revised.design,
 			designDigest,
 			outcome,
+			revisionRounds: revised.revisionRounds,
 			findings,
 			...(approvedDesignId ? { approvedDesignId } : {}),
 			...(source ? { source } : {}),
@@ -183,12 +195,13 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 				`Markdown: ${markdownArtifact.path}`,
 				outcome === "DesignApproved"
 					? `Build: /deep build --design ${input.ref.runId.slice(0, 8)}`
-					: `Revise: /deep design --from ${input.ref.runId.slice(0, 8)} <feedback>`,
+					: `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`,
 			].join("\n"),
 			...(source ? { source } : {}),
 			observationSubjectDigest: initialObservationDigest,
 			designDigest,
-			design: synthesis.report.value,
+			designRevisionRounds: revised.revisionRounds,
+			design: revised.design,
 			candidates: candidates.map((candidate) => candidate.report.value),
 			findings,
 			approval: approvalArtifact,
@@ -201,13 +214,14 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 		if (error instanceof ControlAcceptedError || error instanceof RunAuthorityClosedError) throw error;
 		if (
 			error instanceof DesignApprovalBlockedError ||
-			(error instanceof DesignAgentStatusError && error.status === "blocked")
+			(error instanceof DesignAgentStatusError && error.status === "blocked") ||
+			(error instanceof DesignRevisionAgentStatusError && error.status === "blocked")
 		) {
 			await input.authority.block(error.message, input.completedAt);
 			await writeDiagnostic(input, artifactPath, "Blocked", error.message, approvalDiagnostics(error));
 			return { outcome: "Blocked", artifactPath, reason: error.message };
 		}
-		if (error instanceof DesignAgentStatusError) {
+		if (error instanceof DesignAgentStatusError || error instanceof DesignRevisionAgentStatusError) {
 			await input.authority.fail(error.message, input.completedAt);
 			await writeDiagnostic(input, artifactPath, "Failed", error.message);
 			return { outcome: "Failed", artifactPath, reason: error.message };

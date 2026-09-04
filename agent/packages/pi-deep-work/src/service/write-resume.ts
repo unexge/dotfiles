@@ -12,6 +12,7 @@ import type { GateExecutor } from "../gates/executor.ts";
 import { backendSnapshotDigest, restoreSealedRegression, type BackendTreeService } from "../gates/tree-backend.ts";
 import { canonicalDigest, canonicalJson } from "../policy/canonical-json.ts";
 import type { CanonicalFinding } from "../review/panel.ts";
+import { renderChangesRequiredMarkdown } from "../review/outcome-markdown.ts";
 import { digestFrozenArtifact } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 import type { MutationPhaseCheckpoint, RunProjection } from "../store/schemas.ts";
@@ -29,6 +30,8 @@ interface CommonResume {
 	store: RunStore;
 	ref: RunRef;
 	completedAt: () => string;
+	resolutionFeedback?: string;
+	resolutionDesign?: unknown;
 }
 
 export async function resumeBuildFromContext(
@@ -60,6 +63,7 @@ export async function resumeBuildFromContext(
 		userOrigin: input.origin,
 		checkpointSequence: 2,
 		authorizedAt: input.completedAt(),
+		...(input.resolutionFeedback ? { resolutionFeedback: input.resolutionFeedback } : {}),
 	});
 	return settleQualification(
 		"build",
@@ -74,13 +78,14 @@ export async function resumeFixFromContext(
 	input: CommonResume & {
 		context: FixWriteContext;
 		checkpoint?: MutationPhaseCheckpoint;
+		evidenceRef?: RunRef;
 		approver: DesignApprover;
 		catalog: TrustedCommandCatalog;
 		gates: GateExecutor;
 	},
 ): Promise<RunProjection> {
 	// Keep immutable record/checkpoint/artifact verification before the package-internal regression reseal.
-	await assertRedContextArtifacts(input.store, input.ref, input.context);
+	await assertRedContextArtifacts(input.store, input.evidenceRef ?? input.ref, input.context);
 	const subject = restoreSealedRegression(
 		input.context.redEvidence.regressionSubject,
 		input.context.regressionCheckpoint,
@@ -117,6 +122,8 @@ export async function resumeFixFromContext(
 				`Investigation: ${canonicalJson(input.context.investigation)}`,
 				`Red evidence: ${canonicalJson(input.context.redEvidence)}`,
 				`Required regression selectors: ${canonicalJson(input.context.selectorProposals)}`,
+				...(input.resolutionDesign ? ["Prior rejected design:", canonicalJson(input.resolutionDesign)] : []),
+				...(input.resolutionFeedback ? ["Operator resolution guidance:", input.resolutionFeedback] : []),
 				"Preserve the regression and return exactly these data-only test selectors.",
 			].join("\n\n"),
 		});
@@ -199,6 +206,7 @@ export async function resumeFixFromContext(
 		redEvidence: evidence,
 		checkpointSequence: 3,
 		authorizedAt: input.completedAt(),
+		...(input.resolutionFeedback ? { resolutionFeedback: input.resolutionFeedback } : {}),
 	});
 	return settleQualification(
 		"fix",
@@ -252,6 +260,18 @@ async function writeOutcome(
 ): Promise<void> {
 	const before = await input.trees.captureObservation();
 	const digest = backendSnapshotDigest(before);
+	const markdown = outcome === "ChangesRequired"
+		? renderChangesRequiredMarkdown({
+				runId: input.ref.runId,
+				workflow,
+				goal: input.origin.goal,
+				phase: extra.implementationCheckpoint ? "code review" : "design review",
+				findings: extra.findings ?? [],
+			})
+		: undefined;
+	const markdownArtifact = markdown
+		? await input.store.writeArtifact(input.ref, `outputs/${workflow}.md`, markdown)
+		: undefined;
 	await input.store.writeArtifact(
 		input.ref,
 		`outputs/${workflow}.json`,
@@ -262,6 +282,9 @@ async function writeOutcome(
 				authoritative: false,
 				lifecycleAuthority: "state.json",
 				goal: input.origin.goal,
+				...(markdown && markdownArtifact
+					? { output: [markdown, `Markdown: ${markdownArtifact.path}`, `Resolve: /deep resolve ${input.ref.runId.slice(0, 8)}`].join("\n") }
+					: {}),
 				observationSubjectDigest: observationSubjectDigest(before.observation),
 				...extra,
 			}),
