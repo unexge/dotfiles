@@ -76,7 +76,7 @@ agent/settings.json        Pi packages and global Pi settings
 agent/packages/pi-deep-work Local high-rigor Pi workflows and skills
 ```
 
-Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope. During `dot sync`, every non-comment line in `packages/skills.txt` is installed; a repository alone installs all of its skills, while trailing names select individual skills.
+Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope. The `skills` CLI is installed globally from `packages/npm.txt` before `dot sync` processes every non-comment line in `packages/skills.txt`; a repository alone installs all of its skills, while trailing names select individual skills.
 
 ## Remote Linux access
 
