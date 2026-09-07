@@ -190,6 +190,7 @@ async function fixture(kind: "git" | "jj" = "git") {
 	let remainingRequiredReviews = 0;
 	let revisionCount = 0;
 	const candidateJobs: Array<{ task: string }> = [];
+	const reviewTasks: string[] = [];
 	let synthesisTask = "";
 	const gateway = {
 		assertAuthority(value: RunAuthority) {
@@ -205,7 +206,8 @@ async function fixture(kind: "git" | "jj" = "git") {
 			if (revision) revisionCount++;
 			return { report: { value: designReport(revision ? `revision-${revisionCount}` : "synthesis", synthesisStatus) } };
 		},
-		runManySettled: async () => {
+		runManySettled: async (jobs: Array<{ task: string }>) => {
+			reviewTasks.push(jobs[0].task);
 			if (panelFailure) return [{ ok: false, error: "reviewer unavailable" }];
 			const requiresChanges = changesRequired || remainingRequiredReviews-- > 0;
 			const result: AgentResult<"review-design"> = {
@@ -256,6 +258,7 @@ async function fixture(kind: "git" | "jj" = "git") {
 		trees,
 		approver,
 		candidateJobs,
+		reviewTasks,
 		synthesisTask: () => synthesisTask,
 		setCandidateStatus(value: "ok" | "blocked" | "failed") {
 			candidateStatus = value;
@@ -385,6 +388,11 @@ describe("design workflow", () => {
 		const result = await run(values, { maxRevisionRounds: 2 });
 		expect(result.outcome).toBe("DesignApproved");
 		expect(values.revisionCount()).toBe(1);
+		expect(values.reviewTasks).toHaveLength(2);
+		expect(values.reviewTasks[0]).toContain("initial review");
+		expect(values.reviewTasks[1]).toContain("Re-review the revised design against these prior findings");
+		expect(values.reviewTasks[1]).toContain('"title":"Design gap"');
+		expect(values.reviewTasks[1]).toContain("Do not introduce a new important finding");
 		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
 		expect(artifact.designRevisionRounds).toBe(1);
 		expect(artifact.design.summary).toBe("revision-1");

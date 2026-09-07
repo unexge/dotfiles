@@ -28,6 +28,7 @@ interface ApproveDesignBase {
 	userOrigin: UserOrigin;
 	expectedObservationDigest: string;
 	approvedAt: string;
+	priorFindings?: readonly CanonicalFinding[];
 }
 
 export type ApproveDesignInput =
@@ -99,6 +100,13 @@ export class DesignApprover {
 					selectors: behavior.selectors,
 				})
 			: "No behavior contract applies to standalone design.";
+		const reviewMode = input.priorFindings?.length
+			? [
+					"Re-review the revised design against these prior findings:",
+					canonicalJson(input.priorFindings),
+					"Confirm whether each prior failure remains. Do not introduce a new important finding. Report a new blocker only when this revision introduced a concrete correctness, safety, or data-loss failure.",
+				]
+			: ["This is the initial review. Report all substantive findings together."];
 		const panelResult = await this.panel.review({
 			subject: reviewSubject,
 			frozenArtifact: input.design,
@@ -107,6 +115,7 @@ export class DesignApprover {
 				input.userOrigin.goal,
 				"Coordinator-minted trusted behavior obligations:",
 				obligations,
+				...reviewMode,
 			].join("\n\n"),
 			recaptureSubjectDigest: async () => {
 				const current = await this.captureObservation();

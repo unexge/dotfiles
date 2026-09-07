@@ -171,12 +171,13 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				...(resolutionContext ? [resolutionContext] : []),
 				"All configured behavior observations are coordinator-selected. Return an empty testSelectors array.",
 			],
-			approve: async (candidate) => input.approver.approve({
+			approve: async (candidate, priorFindings) => input.approver.approve({
 				caller: "build",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
 				expectedObservationDigest: initialObservationDigest,
 				approvedAt: input.approvedAt,
+				...(priorFindings.length > 0 ? { priorFindings } : {}),
 				...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
 			}),
 		});

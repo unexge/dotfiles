@@ -181,13 +181,14 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 					throw new FixPreconditionError("Fix design selectors differ from the clean red regression selectors");
 				}
 			},
-			approve: async (candidate) => input.approver.approve({
+			approve: async (candidate, priorFindings) => input.approver.approve({
 				caller: "fix",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
 				expectedObservationDigest: redObservationDigest,
 				selectorProposals: regression.selectorProposals,
 				approvedAt: input.approvedAt,
+				...(priorFindings.length > 0 ? { priorFindings } : {}),
 			}),
 		});
 		const design = canonicalJson(revised.design);

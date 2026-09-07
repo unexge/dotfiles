@@ -112,12 +112,13 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 			observed,
 			context: [`Original operator goal: ${input.origin.goal}`, ...(sourceContext ? [sourceContext] : [])],
 			// Approved-design records are idempotent intermediate evidence and intentionally never GC'd; only a matching state.json outcome is authoritative.
-			approve: async (candidate) => input.approver.approve({
+			approve: async (candidate, priorFindings) => input.approver.approve({
 				caller: "design",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
 				expectedObservationDigest: initialObservationDigest,
 				approvedAt: input.approvedAt,
+				...(priorFindings.length > 0 ? { priorFindings } : {}),
 			}),
 		});
 		const design = canonicalJson(revised.design);

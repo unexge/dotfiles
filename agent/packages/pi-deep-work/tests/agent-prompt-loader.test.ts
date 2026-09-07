@@ -52,7 +52,10 @@ describe("package prompt loader", () => {
 			expect(prompt).toContain("Omit optional suggestions and minor improvements");
 		}
 		expect(design).toContain("Prefer the smallest design that solves the current problem");
-		expect(design).toContain("Favor reversible decisions");
+		expect(design).toContain("Missing implementation detail is not a design finding");
+		expect(design).toContain("On a re-review");
+		expect(design).toContain("do not introduce a new important finding");
+		expect(design).toContain("sufficiently specified to begin implementation");
 		expect(code).toContain("Focus on correctness and simplicity");
 	});
 
