@@ -19,4 +19,5 @@ theme = Ayu
 keybind = cmd+k=text:\x0c
 
 keybind = alt+backspace=text:\x1b\x7f
+keybind = alt+right=text:\x1b[1;3C
 keybind = shift+enter=text:\n
