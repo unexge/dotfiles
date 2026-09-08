@@ -14,6 +14,22 @@ window-padding-y = 0
 window-width = 80
 window-height = 20
 theme = Ayu
+palette = 0=#11151c
+palette = 1=#f07178
+palette = 2=#aad94c
+palette = 3=#e6b450
+palette = 4=#59c2ff
+palette = 5=#d2a6ff
+palette = 6=#95e6cb
+palette = 7=#bfbdb6
+palette = 8=#5a6673
+palette = 9=#f07178
+palette = 10=#aad94c
+palette = 11=#e6b450
+palette = 12=#59c2ff
+palette = 13=#d2a6ff
+palette = 14=#95e6cb
+palette = 15=#bfbdb6
 
 # Clear screen on `cmd+k`
 keybind = cmd+k=text:\x0c

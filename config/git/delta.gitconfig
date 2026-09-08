@@ -3,9 +3,9 @@
 
 [delta]
 	syntax-theme = ayu-dark
-	plus-style = normal "#1c2923"
-	plus-emph-style = normal "#283f2b"
-	plus-non-emph-style = normal "#1c2923"
-	minus-style = normal "#2b1f27"
-	minus-emph-style = normal "#492a33"
-	minus-non-emph-style = normal "#2b1f27"
+	plus-style = syntax "#1c2923"
+	plus-emph-style = syntax "#283f2b"
+	plus-non-emph-style = syntax "#1c2923"
+	minus-style = syntax "#2b1f27"
+	minus-emph-style = syntax "#492a33"
+	minus-non-emph-style = syntax "#2b1f27"

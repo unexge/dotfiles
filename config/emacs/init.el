@@ -20,6 +20,24 @@
 ;; (that turns magit section highlights into unreadable grey95 bars).
 (setq frame-background-mode 'dark)
 (load-theme 'ayu-dark t)
+(set-face-attribute 'default nil :foreground "#bfbdb6" :background "#0b0e14")
+(set-face-attribute 'cursor nil :background "#e6b450")
+(set-face-attribute 'fringe nil :foreground "#5a6673" :background "#0b0e14")
+(set-face-attribute 'highlight nil :background "#1b1f29")
+(set-face-attribute 'region nil :background "#253340")
+(set-face-attribute 'minibuffer-prompt nil :foreground "#e6b450")
+(set-face-attribute 'font-lock-builtin-face nil :foreground "#39bae6")
+(set-face-attribute 'font-lock-comment-face nil :foreground "#5a6673" :slant 'italic)
+(set-face-attribute 'font-lock-constant-face nil :foreground "#d2a6ff")
+(set-face-attribute 'font-lock-function-name-face nil :foreground "#ffb454")
+(set-face-attribute 'font-lock-keyword-face nil :foreground "#ff8f40")
+(set-face-attribute 'font-lock-string-face nil :foreground "#aad94c")
+(set-face-attribute 'font-lock-type-face nil :foreground "#59c2ff")
+(set-face-attribute 'font-lock-variable-name-face nil :foreground "#bfbdb6")
+(set-face-attribute 'font-lock-warning-face nil :foreground "#e6b450" :weight 'bold)
+(set-face-attribute 'link nil :foreground "#39bae6")
+(set-face-attribute 'mode-line nil :foreground "#bfbdb6" :background "#141821")
+(set-face-attribute 'mode-line-inactive nil :foreground "#5a6673" :background "#10141c")
 
 ;; --- Magit ---
 (setq magit-display-buffer-function 'magit-display-buffer-fullframe-status-v1)
@@ -29,6 +47,16 @@
 ;; Ayu Dark, so pin it to the matching Bat theme.
 (setq magit-delta-default-dark-theme "ayu-dark")
 (add-hook 'magit-mode-hook (lambda () (magit-delta-mode +1)))
+(set-face-attribute 'magit-section-heading nil :foreground "#aad94c" :weight 'bold)
+(set-face-attribute 'magit-branch-current nil :foreground "#e6b450" :weight 'bold)
+(set-face-attribute 'magit-branch-local nil :foreground "#39bae6")
+(set-face-attribute 'magit-branch-remote nil :foreground "#aad94c")
+(set-face-attribute 'magit-hash nil :foreground "#5a6673")
+(set-face-attribute 'magit-tag nil :foreground "#e6b450")
+(set-face-attribute 'magit-diff-added nil :foreground "#70bf56" :background "#1c2923")
+(set-face-attribute 'magit-diff-removed nil :foreground "#f26d78" :background "#2b1f27")
+(set-face-attribute 'magit-diff-context nil :foreground "#5a6673")
+(set-face-attribute 'magit-diff-hunk-heading nil :foreground "#59c2ff" :background "#141821")
 
 ;; --- Difftastic (structural diffs as default in Magit) ---
 ;; Requires the `difft' CLI (brew install difftastic).
