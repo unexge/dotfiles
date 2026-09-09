@@ -159,7 +159,18 @@ fi
 link_tree "$REPO_ROOT/config/bat" "$CONFIG_HOME/bat"
 link_tree "$REPO_ROOT/config/git" "$CONFIG_HOME/git"
 link_tree "$REPO_ROOT/config/helix" "$CONFIG_HOME/helix"
-link_tree "$REPO_ROOT/config/hunk" "$CONFIG_HOME/hunk"
+link_file "$REPO_ROOT/config/hunk/config.toml" "$CONFIG_HOME/hunk/config.toml"
+link_file \
+  "$REPO_ROOT/config/hunk/extensions/reviewed-files/README.md" \
+  "$CONFIG_HOME/hunk/extensions/reviewed-files/README.md"
+link_file \
+  "$REPO_ROOT/config/hunk/extensions/reviewed-files/package.json" \
+  "$CONFIG_HOME/hunk/extensions/reviewed-files/package.json"
+# Hunk canonicalizes extension source roots when resolving host-provided React modules.
+link_file \
+  "$REPO_ROOT/config/hunk/extensions/reviewed-files/src" \
+  "$CONFIG_HOME/hunk/extensions/reviewed-files/src"
+prune_stale_links "$REPO_ROOT/config/hunk" "$CONFIG_HOME/hunk"
 link_file "$REPO_ROOT/config/emacs/init.el" "$HOME/.emacs.d/init.el"
 link_tree "$REPO_ROOT/config/bin" "$HOME/.local/bin"
 

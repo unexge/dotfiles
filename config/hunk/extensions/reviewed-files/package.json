@@ -5,7 +5,7 @@
   "description": "Session-only reviewed-file collapsing for Hunk",
   "hunk": {
     "extensions": [
-      "./index.tsx"
+      "./src/index.tsx"
     ],
     "apiVersion": 6
   }
