@@ -100,7 +100,7 @@ frame goal -> design -> design review -> implement -> quick/full gates
 -> deterministic verification -> local commit
 ```
 
-Build and fix use the same bound for design revisions and exact-candidate code repairs. A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
+Build and fix use the same bound for design revisions, gate-failure repairs, and exact-candidate code repairs. A trusted gate that exits unsuccessfully supplies its bounded output to the repair agent; timeouts, cancellation, incomplete output, overflow, and subject drift still block. A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
 
 ### Fix a bug
 
@@ -146,7 +146,7 @@ The claim must exactly match a verification contract in `.pi/pi-deep-work.json`,
 /deep cancel <run-id>
 ```
 
-Use `resume` only for paused runs. Use `/deep recover <run-id> <challenge>` only when `status` reports an interrupted publication challenge.
+Use `resume` for paused or blocked runs when the recorded checkout still matches their durable workflow checkpoint. Use `/deep recover <run-id> <challenge>` only when `status` reports an interrupted publication challenge.
 
 Runs and artifacts are stored outside the checkout under:
 

@@ -233,13 +233,11 @@ export class QualifyAndCommit {
 			createdAt: input.authorizedAt,
 		});
 		const quick = await this.runGroup(this.catalog.commandsFor("quick"), candidate);
-		if (quick.some((evidence) => !evidence.execution.receipt)) {
-			return { status: "Blocked", reason: "quick gate did not produce stable passing evidence" };
-		}
+		const quickFailure = await this.gateFailure("quick", quick, candidate, round);
+		if (quickFailure) return quickFailure;
 		const full = await this.runGroup(this.catalog.commandsFor("full"), candidate);
-		if (full.some((evidence) => !evidence.execution.receipt)) {
-			return { status: "Blocked", reason: "full gate did not produce stable passing evidence" };
-		}
+		const fullFailure = await this.gateFailure("full", full, candidate, round);
+		if (fullFailure) return fullFailure;
 		const behaviorCommands = this.catalog.observations(input.approvedDesign.behavior.contract.observationIds);
 		const behaviorEvidence = await this.runGroup(behaviorCommands, candidate);
 		const behaviorExecutions = behaviorEvidence.map(toObservationExecution);
@@ -378,6 +376,45 @@ export class QualifyAndCommit {
 			evidence.push({ command, execution });
 		}
 		return evidence;
+	}
+
+	private async gateFailure(
+		category: "quick" | "full",
+		evidence: readonly ReceiptEvidence[],
+		candidate: CandidateSubject,
+		round: number,
+	): Promise<RoundResult | undefined> {
+		const missing = evidence.filter((item) => !item.execution.receipt);
+		if (missing.length === 0) return undefined;
+		if (missing.some((item) => item.execution.record.outcome !== "failed")) {
+			return { status: "Blocked", reason: `${category} gate did not produce stable passing evidence` };
+		}
+		if (round >= this.policy.machine.maxRepairRounds) {
+			return { status: "Blocked", reason: `${category} gate failed after all repair rounds` };
+		}
+		const findings = await Promise.all(
+			missing.map(async ({ command, execution }, index): Promise<CanonicalFinding> => ({
+				id: `gate:${category}:${command.id}:${index + 1}`,
+				reviewerId: `machine-gate/${command.id}`,
+				severity: "blocker",
+				title: `${category} gate failed: ${command.id}`,
+				detail: [
+					`Trusted command: ${canonicalJson(command.argv)}`,
+					`Exit code: ${execution.record.exitCode}`,
+					...(execution.record.diagnostic ? [`Diagnostic: ${execution.record.diagnostic}`] : []),
+					`stdout:\n${await this.gateOutput(execution.record.stdout.path)}`,
+					`stderr:\n${await this.gateOutput(execution.record.stderr.path)}`,
+				].join("\n\n"),
+			})),
+		);
+		return { status: "Repair", candidate, findings };
+	}
+
+	private async gateOutput(path: string): Promise<string> {
+		const content = await this.store.readArtifact(this.ref, path);
+		const limit = 8 * 1024;
+		if (content.length <= limit) return content.toString("utf8");
+		return `[truncated ${content.length - limit} leading bytes]\n${content.subarray(content.length - limit).toString("utf8")}`;
 	}
 
 	private async draftMessage(input: QualifyAndCommitInput, candidate: CandidateSubject): Promise<string> {

@@ -165,6 +165,13 @@ describe("RepairAgent", () => {
 				phase: "repair-1",
 				mutation: { fileCount: 1 },
 			});
+			expect(
+				JSON.parse(await readFile(join(ref.directory, "artifacts/workflow/latest-repair-checkpoint.json"), "utf8")),
+			).toMatchObject({
+				phase: "repair-1",
+				subjectDigest: expect.any(String),
+				mutation: { fileCount: 1 },
+			});
 			reportedPath = "other.txt";
 			await expect(
 				repair.repair({

@@ -54,7 +54,9 @@ import {
 	resumeFixFromContext,
 } from "./write-resume.ts";
 import {
+	decode,
 	decodeRunProjection,
+	MutationPhaseCheckpointSchema,
 	type MutationPhaseCheckpoint,
 	type QueuedRun,
 	type RecoverableRun,
@@ -406,6 +408,8 @@ export class WorkflowRuntime {
 		if (context.stage !== "red") await this.assertApprovedDesign(ref, context.approvedDesign);
 		if (context.stage === "implemented") await this.assertDurableCheckpoint(ref, context.implementationCheckpoint);
 		let checkpoint = context.stage === "implemented" ? context.implementationCheckpoint : undefined;
+		const latestRepairCheckpoint = await this.readLatestRepairCheckpoint(ref);
+		if (latestRepairCheckpoint) await this.assertDurableCheckpoint(ref, latestRepairCheckpoint);
 		if (!checkpoint && context.stage === "approved" && context.attemptId === state.lastAttemptId) {
 			const persisted = await this.store.readCheckpoint(
 				ref,
@@ -421,6 +425,9 @@ export class WorkflowRuntime {
 				? await captureGitObservation(repository, policy.digest, this.runner)
 				: await captureJjObservation(repository, policy.digest, this.runner);
 		const observationDigest = observationSubjectDigest(observation);
+		if (latestRepairCheckpoint && checkpointMatchesObservation(latestRepairCheckpoint, observationDigest, policy.digest)) {
+			checkpoint = latestRepairCheckpoint;
+		}
 		if (checkpoint) {
 			if (!checkpointMatchesObservation(checkpoint, observationDigest, policy.digest)) {
 				throw new Error("Write resume checkout differs from the implementation checkpoint");
@@ -567,6 +574,20 @@ export class WorkflowRuntime {
 			throw error;
 		}
 		return { ref, state: await this.store.load(ref) };
+	}
+
+	private async readLatestRepairCheckpoint(ref: RunRef): Promise<MutationPhaseCheckpoint | undefined> {
+		try {
+			const value = JSON.parse(
+				(await this.store.readArtifact(ref, "workflow/latest-repair-checkpoint.json")).toString("utf8"),
+			);
+			const checkpoint = decode(MutationPhaseCheckpointSchema, value);
+			if (!checkpoint.phase.startsWith("repair-")) throw new Error("Latest repair checkpoint has a non-repair phase");
+			return checkpoint;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			throw error;
+		}
 	}
 
 	private async assertApprovedDesign(ref: RunRef, record: ApprovedDesignRecord): Promise<void> {

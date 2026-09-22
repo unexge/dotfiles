@@ -91,7 +91,7 @@ normalize exactly twice -> seal candidate -> quick gates -> full gates
 -> deterministic Verified record -> private authorization -> local transaction
 ```
 
-Every receipt/review/verdict names one exact candidate. A repair seals a new candidate; all old evidence becomes ineligible by subject identity. Only `Verified` can authorize a commit.
+Every receipt/review/verdict names one exact candidate. A stable unsuccessful quick or full gate is supplied to the bounded repair loop with bounded command output; timeout, cancellation, overflow, incomplete execution, and subject drift block. A repair seals a new candidate; all old evidence becomes ineligible by subject identity. Only `Verified` can authorize a commit.
 
 ## Publication
 
@@ -103,7 +103,7 @@ Prepared/publishing/aligning markers are durable and share the controls lock. `/
 
 ## Resume and shutdown
 
-Read-only resume reruns against the pinned repository/policy. Write resume requires strict durable workflow context plus immutable approved-design/checkpoint/red-evidence crosschecks and matching live observation. A clean pre-context pause may restart; a dirty pre-context pause becomes `NeedsManualInspection`.
+Read-only resume reruns against the pinned repository/policy. Write resume requires strict durable workflow context plus immutable approved-design/checkpoint/red-evidence crosschecks and matching live observation. Qualification records the latest complete repair checkpoint so blocked attempts resume from their current candidate. A clean pre-context pause may restart; a dirty pre-context pause becomes `NeedsManualInspection`.
 
 Session shutdown fences new work, appends durable Pause to active or not-yet-registered starts, and waits up to 60 seconds. A timeout emits a visible warning; leases are recoverable by positive death detection.
 

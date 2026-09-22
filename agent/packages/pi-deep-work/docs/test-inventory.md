@@ -40,7 +40,7 @@ Coverage includes repository identity, broken metadata, tracked/untracked/staged
 ## Evidence and review
 
 - Trusted quick/full/observation catalogs, project-language filtering of machine gates, write-readiness preflight, and supervised process-group timeout/cancel/output handling.
-- Same-subject immutable gate records and receipts; foreign command/backend/subject/claim rejection.
+- Same-subject immutable gate records and receipts; foreign command/backend/subject/claim rejection; stable quick/full failures enter bounded repair while infrastructure failures block.
 - Exactly two normalizer passes and fixed-point candidate sealing.
 - Complete design/code review panels, canonical findings, fresh-subject replay, explanatory-only orchestrator adjudication.
 - Deterministic behavior verdict precedence and exact standalone contract lookup.

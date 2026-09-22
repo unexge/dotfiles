@@ -96,7 +96,7 @@ export class RepairAgent {
 			const state = await this.store.load(this.ref);
 			if (state.lifecycle !== "Active") throw new Error("Repair checkpoint requires an Active run");
 			const controls = await this.store.controls(this.ref);
-			await persistMutationCheckpoint(
+			const checkpoint = await persistMutationCheckpoint(
 				this.store,
 				this.ref,
 				{
@@ -114,6 +114,11 @@ export class RepairAgent {
 				phase,
 				async () =>
 					observationSubjectDigest((await this.trees.captureMutationObservation(options)).observation),
+			);
+			await this.store.writeArtifact(
+				this.ref,
+				"workflow/latest-repair-checkpoint.json",
+				canonicalJson(checkpoint),
 			);
 		} catch (error) {
 			return settleMutationError(this.authority, phase, error, reason, input.createdAt);
