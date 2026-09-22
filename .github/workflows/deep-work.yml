@@ -1,0 +1,35 @@
+name: Deep Work
+
+on:
+  pull_request:
+    paths:
+      - "agent/packages/pi-deep-work/**"
+      - ".github/workflows/deep-work.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "agent/packages/pi-deep-work/**"
+      - ".github/workflows/deep-work.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent/packages/pi-deep-work
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: agent/packages/pi-deep-work/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
