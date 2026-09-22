@@ -1,8 +1,6 @@
 brew "bat"
-brew "bazelisk"
 brew "btop"
 brew "cargo-binstall"
-brew "crit"
 brew "difftastic"
 brew "dust"
 brew "emacs"
