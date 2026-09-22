@@ -63,7 +63,7 @@ Neither backend pushes.
 - Mutation-owned build/fix implementation and repair checkpoints.
 - Real Git/native-jj/colocated-jj build commits and fix red-to-green commits.
 - Real non-Verified build remains uncommitted; already-green/timeout/drifting red proof blocks.
-- Read-only resume, clean no-context write restart, dirty no-context manual inspection, build/fix checkpoint resume, fix red-stage resume, context/checkpoint tamper rejection, and transaction recovery.
+- Read-only resume, clean no-context write restart, dirty no-context manual inspection, build/fix checkpoint resume, fix red-stage resume, latest-repair resolution, context/checkpoint tamper rejection, and transaction recovery.
 - Installed runtime metadata, all seven dispatch paths, status, controls, shutdown races, and single-graph entrypoint.
 
 Release verification requires Jujutsu tests to run, not skip. Permanent boundary tests verify the single installed runtime graph and command capability surface.

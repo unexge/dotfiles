@@ -37,7 +37,7 @@ interface CommonResume {
 export async function resumeBuildFromContext(
 	input: CommonResume & { context: BuildWriteContext; checkpoint?: MutationPhaseCheckpoint },
 ): Promise<RunProjection> {
-	let checkpoint = input.context.stage === "implemented" ? input.context.implementationCheckpoint : input.checkpoint;
+	let checkpoint = input.checkpoint ?? (input.context.stage === "implemented" ? input.context.implementationCheckpoint : undefined);
 	if (!checkpoint) {
 		const implemented = await input.implementation.implement({
 			approvedDesign: input.context.approvedDesign,
@@ -179,7 +179,7 @@ export async function resumeFixFromContext(
 		};
 		await writeFixContext(input.store, input.ref, context);
 	}
-	let checkpoint = context.stage === "implemented" ? context.implementationCheckpoint : input.checkpoint;
+	let checkpoint = input.checkpoint ?? (context.stage === "implemented" ? context.implementationCheckpoint : undefined);
 	if (!checkpoint) {
 		const implemented = await input.implementation.implement({
 			approvedDesign,

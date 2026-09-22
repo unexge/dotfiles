@@ -406,10 +406,7 @@ export class WorkflowRuntime {
 		if (!context) throw new Error("Write resume has no durable workflow context");
 		if (fixContext) await this.assertDurableCheckpoint(ref, fixContext.regressionCheckpoint);
 		if (context.stage !== "red") await this.assertApprovedDesign(ref, context.approvedDesign);
-		if (context.stage === "implemented") await this.assertDurableCheckpoint(ref, context.implementationCheckpoint);
 		let checkpoint = context.stage === "implemented" ? context.implementationCheckpoint : undefined;
-		const latestRepairCheckpoint = await this.readLatestRepairCheckpoint(ref);
-		if (latestRepairCheckpoint) await this.assertDurableCheckpoint(ref, latestRepairCheckpoint);
 		if (!checkpoint && context.stage === "approved" && context.attemptId === state.lastAttemptId) {
 			const persisted = await this.store.readCheckpoint(
 				ref,
@@ -425,13 +422,10 @@ export class WorkflowRuntime {
 				? await captureGitObservation(repository, policy.digest, this.runner)
 				: await captureJjObservation(repository, policy.digest, this.runner);
 		const observationDigest = observationSubjectDigest(observation);
-		if (latestRepairCheckpoint && checkpointMatchesObservation(latestRepairCheckpoint, observationDigest, policy.digest)) {
-			checkpoint = latestRepairCheckpoint;
-		}
 		if (checkpoint) {
-			if (!checkpointMatchesObservation(checkpoint, observationDigest, policy.digest)) {
-				throw new Error("Write resume checkout differs from the implementation checkpoint");
-			}
+			const matching = await this.matchingWriteCheckpoint(ref, checkpoint, observationDigest, policy.digest);
+			if (!matching) throw new Error("Write resume checkout differs from the implementation checkpoint");
+			checkpoint = matching;
 		} else {
 			const expectedDigest =
 				context.workflow === "build"
@@ -574,6 +568,21 @@ export class WorkflowRuntime {
 			throw error;
 		}
 		return { ref, state: await this.store.load(ref) };
+	}
+
+	private async matchingWriteCheckpoint(
+		ref: RunRef,
+		base: MutationPhaseCheckpoint,
+		observationDigest: string,
+		policyDigest: string,
+	): Promise<MutationPhaseCheckpoint | undefined> {
+		await this.assertDurableCheckpoint(ref, base);
+		const latest = await this.readLatestRepairCheckpoint(ref);
+		if (latest) {
+			await this.assertDurableCheckpoint(ref, latest);
+			if (checkpointMatchesObservation(latest, observationDigest, policyDigest)) return latest;
+		}
+		return checkpointMatchesObservation(base, observationDigest, policyDigest) ? base : undefined;
 	}
 
 	private async readLatestRepairCheckpoint(ref: RunRef): Promise<MutationPhaseCheckpoint | undefined> {
@@ -964,23 +973,25 @@ export class WorkflowRuntime {
 			if (context.stage !== "red") {
 				await this.assertApprovedDesign(localContext ? ref : sourceRef, context.approvedDesign);
 			}
-			let sourceCheckpoint: MutationPhaseCheckpoint;
+			let baseCheckpoint: MutationPhaseCheckpoint;
 			let checkpointRef: RunRef;
 			if (context.stage === "implemented") {
-				sourceCheckpoint = context.implementationCheckpoint;
+				baseCheckpoint = context.implementationCheckpoint;
 				checkpointRef = localContext ? ref : sourceRef;
 			} else if (context.workflow === "fix") {
-				sourceCheckpoint = context.regressionCheckpoint;
+				baseCheckpoint = context.regressionCheckpoint;
 				checkpointRef = sourceRef;
 			} else {
 				throw new Error("Build resolution has no implementation checkpoint");
 			}
-			await this.assertDurableCheckpoint(checkpointRef, sourceCheckpoint);
-			const expected = sourceCheckpoint.subjectDigest;
 			const current = await trees.captureObservation();
-			if (observationSubjectDigest(current.observation) !== expected) {
-				throw new Error("Resolution checkout differs from the source workflow checkpoint");
-			}
+			const sourceCheckpoint = await this.matchingWriteCheckpoint(
+				checkpointRef,
+				baseCheckpoint,
+				observationSubjectDigest(current.observation),
+				policy.digest,
+			);
+			if (!sourceCheckpoint) throw new Error("Resolution checkout differs from the source workflow checkpoint");
 			const completedAt = () => new Date().toISOString();
 			if (context.workflow === "build") {
 				await resumeBuildFromContext({
@@ -993,6 +1004,7 @@ export class WorkflowRuntime {
 					qualifier,
 					store: this.store,
 					ref,
+					checkpoint: sourceCheckpoint,
 					completedAt,
 					resolutionFeedback: request.resolutionSource.feedback,
 				});
@@ -1007,6 +1019,7 @@ export class WorkflowRuntime {
 					qualifier,
 					store: this.store,
 					ref,
+					checkpoint: sourceCheckpoint,
 					completedAt,
 					resolutionFeedback: request.resolutionSource.feedback,
 					...(request.resolutionSource.design ? { resolutionDesign: request.resolutionSource.design } : {}),

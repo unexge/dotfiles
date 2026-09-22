@@ -117,7 +117,7 @@ Build and fix use the same bound for design revisions, gate-failure repairs, and
 /deep resolve <run-id> --accept
 ```
 
-For a completed `ChangesRequired` design, build, or fix, `resolve` lets you answer the exact remaining findings one at a time or choose `Edit all at once` for the full form. For design runs, `--accept` skips the prompts, records every finding as an accepted limitation, and starts the normal linked design revision; the revised design still requires review approval before it can be built. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
+For a completed `ChangesRequired` design, build, or fix, `resolve` lets you answer the exact remaining findings one at a time or choose `Edit all at once` for the full form. Build and fix resolution continues from the latest durable repair checkpoint when qualification changed the original implementation. For design runs, `--accept` skips the prompts, records every finding as an accepted limitation, and starts the normal linked design revision; the revised design still requires review approval before it can be built. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
 
 ### Review existing work
 
