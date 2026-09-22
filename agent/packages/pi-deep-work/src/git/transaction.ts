@@ -582,13 +582,12 @@ export class GitTransactionService {
 		const body = separator < 0 ? "" : raw.slice(separator + 2);
 		const metadata = (
 			await this.required(
-				["show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI", commitId],
+				["show", "-s", "--format=%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct", commitId],
 				this.publicationEnvironment(),
 				signal,
 			)
 		).trimEnd().split("\0");
-		const milliseconds = Math.floor(Date.parse(date) / 1000) * 1000;
-		const isoDate = new Date(milliseconds).toISOString().replace(/\.000Z$/, "+00:00");
+		const timestamp = String(Math.floor(Date.parse(date) / 1000));
 		if (
 			tree !== candidate.treeOid ||
 			parent !== candidate.observation.headOid ||
@@ -596,10 +595,10 @@ export class GitTransactionService {
 			metadata.length !== 6 ||
 			metadata[0] !== identity.name ||
 			metadata[1] !== identity.email ||
-			metadata[2] !== isoDate ||
+			metadata[2] !== timestamp ||
 			metadata[3] !== identity.name ||
 			metadata[4] !== identity.email ||
-			metadata[5] !== isoDate
+			metadata[5] !== timestamp
 		) {
 			throw new Error("Prepared Git commit does not match authorization");
 		}
@@ -613,14 +612,12 @@ export class GitTransactionService {
 		const body = separator < 0 ? "" : raw.slice(separator + 2);
 		const metadata = (
 			await this.required(
-				["show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI", record.proposedCommitId],
+				["show", "-s", "--format=%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct", record.proposedCommitId],
 				this.publicationEnvironment(),
 			)
 		).trimEnd().split("\0");
-		const authorMilliseconds = Math.floor(Date.parse(record.authorDate) / 1000) * 1000;
-		const committerMilliseconds = Math.floor(Date.parse(record.committerDate) / 1000) * 1000;
-		const authorIsoDate = new Date(authorMilliseconds).toISOString().replace(/\.000Z$/, "+00:00");
-		const committerIsoDate = new Date(committerMilliseconds).toISOString().replace(/\.000Z$/, "+00:00");
+		const authorTimestamp = String(Math.floor(Date.parse(record.authorDate) / 1000));
+		const committerTimestamp = String(Math.floor(Date.parse(record.committerDate) / 1000));
 		if (
 			tree !== record.treeOid ||
 			parent !== record.expectedHead ||
@@ -629,10 +626,10 @@ export class GitTransactionService {
 				[
 					record.authorName,
 					record.authorEmail,
-					authorIsoDate,
+					authorTimestamp,
 					record.committerName,
 					record.committerEmail,
-					committerIsoDate,
+					committerTimestamp,
 				].join("\0")
 		) {
 			throw new Error("Prepared Git commit record does not match its commit object");

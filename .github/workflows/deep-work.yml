@@ -31,5 +31,7 @@ jobs:
           cache: npm
           cache-dependency-path: agent/packages/pi-deep-work/package-lock.json
       - run: npm ci
+      - name: Install supported Jujutsu
+        run: cargo install --locked --version 0.45.1 jj-cli
       - run: npm run check
       - run: npm test

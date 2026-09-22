@@ -14,7 +14,7 @@ const observation = {
 	changedPathsDigest: "d".repeat(64),
 	headOid: "1".repeat(40),
 	symbolicRef: "refs/heads/main",
-	conflicted: false,
+	conflicted: false as const,
 	indexTree: "2".repeat(40),
 };
 

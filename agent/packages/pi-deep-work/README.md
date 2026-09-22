@@ -23,7 +23,7 @@ Configure the orchestrator, review panel, and work agent once. The picker recomm
 /deep config
 ```
 
-Initialize each repository where `build` or `fix` may write:
+Initialize each repository where `build` or `fix` may write. Jujutsu write workflows currently require `jj` 0.45.x:
 
 ```text
 /deep init

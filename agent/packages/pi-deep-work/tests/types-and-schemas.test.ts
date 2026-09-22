@@ -414,7 +414,7 @@ describe("evidence and commit schemas", () => {
 				messageDigest: hex("4"),
 				userName: "Deep Test",
 				userEmail: "deep@example.test",
-				jjVersion: "jj 0.41.0",
+				jjVersion: "jj 0.45.1",
 				preparedAt: now,
 			}),
 		).toMatchObject({ kind: "jj" });

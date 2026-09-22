@@ -96,7 +96,7 @@ export class JjTransactionService {
 		assertCommitAuthorization(authorization);
 		if (authorization.candidate.kind !== "jj") throw new Error("Jujutsu transaction requires a Jujutsu authorization");
 		const version = (await this.effectCommand("version", ["--version"])).trim();
-		if (!/^jj 0\.41\./.test(version)) throw new Error(`Unsupported Jujutsu publication version: ${version}`);
+		if (!/^jj 0\.45\./.test(version)) throw new Error(`Unsupported Jujutsu publication version: ${version}`);
 		const candidate = authorization.candidate;
 		const snapshot = await trees.capture();
 		if (

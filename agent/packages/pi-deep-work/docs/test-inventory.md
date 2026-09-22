@@ -50,7 +50,7 @@ Coverage includes repository identity, broken metadata, tracked/untracked/staged
 
 Git tests cover hook-neutralized temporary-index tree construction, `commit-tree`, expected-old `update-ref`, metadata-only `read-tree` alignment, cancellation ordering, ref/index/worktree topology, and markerless/pre/post-CAS recovery.
 
-Jujutsu tests cover pinned 0.41 native commands, operation linearization, complete-`@` commit, finalized `@-`, empty child `@`, bookmark/workspace/source invariants, cancellation ordering, and markerless/pre/post-operation/alignment/divergent recovery. Colocated publication invokes no Git evidence/publication command.
+Jujutsu tests cover pinned 0.45 native commands, operation linearization, complete-`@` commit, finalized `@-`, empty child `@`, bookmark/workspace/source invariants, cancellation ordering, and markerless/pre/post-operation/alignment/divergent recovery. Colocated publication invokes no Git evidence/publication command.
 
 Neither backend pushes.
 
