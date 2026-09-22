@@ -91,7 +91,9 @@ normalize exactly twice -> seal candidate -> quick gates -> full gates
 -> deterministic Verified record -> private authorization -> local transaction
 ```
 
-Every receipt/review/verdict names one exact candidate. A stable unsuccessful quick or full gate is supplied to the bounded repair loop with bounded command output; timeout, cancellation, overflow, incomplete execution, and subject drift block. A repair seals a new candidate; all old evidence becomes ineligible by subject identity. Only `Verified` can authorize a commit.
+Every receipt/review/verdict names one exact candidate. Implementation, repair, and final code review receive immutable, digest-checked structured approved-design content and coordinator-minted behavior obligations. Approved-design validation precedes mutation, including normalization. Design reviewers independently receive applicable operator feedback and accepted source decisions; corrective re-reviews receive the previous design for comparison. Continuations retain feedback across generations.
+
+A stable unsuccessful quick gate, full gate, or behavior observation is supplied to the bounded repair loop with bounded command output; timeout, cancellation, overflow, incomplete execution, and subject drift block. Exhausted repairs produce `ChangesRequired` with the actual stopping phase and completed repair count. A repair seals a new candidate; all old evidence becomes ineligible by subject identity. Only `Verified` can authorize a commit.
 
 ## Publication
 

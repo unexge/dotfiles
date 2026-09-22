@@ -62,7 +62,7 @@ If you want changes, revise the exact prior design with an unambiguous full or p
 /deep design --from <run-id> Keep persistence in the existing upload repository and remove the scheduler abstraction
 ```
 
-The revision receives the prior design, prior findings, and your feedback. Its Markdown records that lineage and goes through a fresh complete review.
+The revision and every reviewer receive the prior design, prior findings, and your feedback directly. Feedback is retained across linked generations; corrective re-reviews also receive the exact previous design for comparison. Its Markdown records that lineage and goes through a fresh complete review.
 
 Build an approved design directly:
 
@@ -100,7 +100,7 @@ frame goal -> design -> design review -> implement -> quick/full gates
 -> deterministic verification -> local commit
 ```
 
-Build and fix use the same bound for design revisions, gate-failure repairs, and exact-candidate code repairs. A trusted gate that exits unsuccessfully supplies its bounded output to the repair agent; timeouts, cancellation, incomplete output, overflow, and subject drift still block. A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
+Build and fix use the same bound for design revisions, gate-failure repairs, and exact-candidate code repairs. A trusted gate or behavior observation that exits unsuccessfully with complete, stable evidence supplies its bounded output to the repair agent; timeouts, cancellation, incomplete output, overflow, and subject drift still block. Exhaustion reports the actual stopping phase and completed repair count. Implementation, repair, and final code review receive the validated structured approved design and coordinator-owned behavior obligations. Missing or tampered approved artifacts prevent repository mutation. A successful build commits automatically. There is no human approval pause before the commit. If you need a human design checkpoint, run `/deep design` first.
 
 ### Fix a bug
 
@@ -117,7 +117,7 @@ Build and fix use the same bound for design revisions, gate-failure repairs, and
 /deep resolve <run-id> --accept
 ```
 
-For a completed `ChangesRequired` design, build, or fix, `resolve` lets you answer the exact remaining findings one at a time or choose `Edit all at once` for the full form. Build and fix resolution continues from the latest durable repair checkpoint when qualification changed the original implementation. For design runs, `--accept` skips the prompts, records every finding as an accepted limitation, and starts the normal linked design revision; the revised design still requires review approval before it can be built. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
+For a completed `ChangesRequired` design, build, or fix, `resolve` lets you answer the exact remaining findings one at a time or choose `Edit all at once` for the full form. Build and fix resolution continues from the latest durable repair checkpoint when qualification changed the original implementation, retaining prior operator guidance across repeated resolves and blocked resumes. For design runs, `--accept` skips the prompts, records every finding as an accepted limitation, and starts the normal linked design revision; the revised design still requires review approval before it can be built. The source run remains immutable and the new workflow binds the prior summary artifact digest and operator feedback. A mutation-bearing continuation proceeds only when the live checkout and durable source evidence exactly match the recorded checkpoint; otherwise it fails closed.
 
 ### Review existing work
 

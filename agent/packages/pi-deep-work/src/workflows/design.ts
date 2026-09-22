@@ -66,6 +66,7 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 		// BackendTreeService deterministically derives tree identity from bytes and metadata cryptographically bound by this observation.
 		// The workflow's snapshot recaptures remain the final enforcement around the observation-only approver boundary.
 		const initialObservationDigest = observationSubjectDigest(observed.subject.observation);
+		const feedback = [input.source?.feedback, input.feedback].filter(Boolean).join("\n\n");
 		const sourceContext = input.source
 			? [
 					"Revise this prior design:",
@@ -73,7 +74,7 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 					"Prior review findings:",
 					canonicalJson(input.source.findings),
 					"Operator feedback:",
-					input.feedback!,
+					feedback,
 				].join("\n\n")
 			: undefined;
 		const candidates = await observed.runMany(
@@ -112,13 +113,15 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 			observed,
 			context: [`Original operator goal: ${input.origin.goal}`, ...(sourceContext ? [sourceContext] : [])],
 			// Approved-design records are idempotent intermediate evidence and intentionally never GC'd; only a matching state.json outcome is authoritative.
-			approve: async (candidate, priorFindings) => input.approver.approve({
+			approve: async (candidate, priorFindings, priorDesign) => input.approver.approve({
 				caller: "design",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
 				expectedObservationDigest: initialObservationDigest,
 				approvedAt: input.approvedAt,
 				...(priorFindings.length > 0 ? { priorFindings } : {}),
+				...(priorDesign ? { priorDesign: canonicalJson(priorDesign) } : {}),
+				...(sourceContext ? { reviewGuidance: sourceContext } : {}),
 			}),
 		});
 		const design = canonicalJson(revised.design);
@@ -168,7 +171,7 @@ export async function runDesignWorkflow(input: DesignWorkflowInput): Promise<Des
 						? { approvedDesignId: input.source.approvedDesign.approvedDesignId }
 						: {}),
 					artifactDigest: input.source.designDigest,
-					feedback: input.feedback!,
+					feedback,
 				}
 			: undefined;
 		const markdown = renderDesignMarkdown({

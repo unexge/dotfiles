@@ -1,3 +1,4 @@
+import { structuredDesign } from "./helpers/approved-design.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
@@ -153,7 +154,7 @@ async function setup(kind: Extract<RepositoryFixtureKind, "jj-native" | "jj-colo
 	const panel = new ReviewPanel(gateway, store, ref, resolved);
 	const approved = await new DesignApprover(panel, catalog, store, ref, capture).approve({
 		caller: "build",
-		design: "approved jj design",
+		design: JSON.stringify(structuredDesign),
 		userOrigin: userOriginFromRegisteredCommand("build behavior"),
 		expectedObservationDigest: observationSubjectDigest(await capture()),
 		selectorProposals: [{ selectorId: "behavior-path", value: "tests/behavior.rs" }],

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { loadApprovedDesignContent } from "../service/continuation.ts";
 import type { AgentGateway } from "../agents/gateway.ts";
 import type { RunAuthority } from "./run-authority.ts";
 import type { UserOrigin } from "./user-origin.ts";
@@ -12,7 +13,8 @@ import {
 } from "../authorization/red-regression.ts";
 import { validateCommitMessage } from "../authorization/message.ts";
 import type { TrustedCommand, TrustedCommandCatalog } from "../gates/catalog.ts";
-import type { ObservationExecution } from "../gates/coverage.ts";
+import { analyzeClaimCoverage, type ObservationExecution } from "../gates/coverage.ts";
+import { decodeGateRecord, decodeObservationReceipt } from "../gates/schemas.ts";
 import type { GateExecutor } from "../gates/executor.ts";
 import type { Normalizer } from "../gates/normalizer.ts";
 import type { BackendTreeService } from "../gates/tree-backend.ts";
@@ -23,15 +25,17 @@ import type { ApprovedDesignRecord } from "../review/design.ts";
 import type { CanonicalFinding, PanelDiagnostic, ReviewPanel } from "../review/panel.ts";
 import { reviewSubjectDigest } from "../review/subjects.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
-import { canonicalJson } from "../policy/canonical-json.ts";
+import { canonicalDigest, canonicalJson } from "../policy/canonical-json.ts";
 import { evidenceSubjectDigest, observationSubjectDigest } from "../subject/content.ts";
 import type { CandidateSubject } from "../subject/types.ts";
 import { verifyCandidateBehavior } from "../verification/behavior.ts";
 
+type RepairPhase = "quick gates" | "full gates" | "behavior observations" | "code review";
+
 export type QualificationResult =
 	| { status: "Committed"; commitId: string }
 	| { status: "Blocked"; reason: string; diagnostics?: readonly PanelDiagnostic[] }
-	| { status: "ChangesRequired"; findings: readonly CanonicalFinding[] }
+	| { status: "ChangesRequired"; findings: readonly CanonicalFinding[]; phase: RepairPhase; repairRounds: number }
 	| { status: "NotVerified" }
 	| { status: "Inconclusive" };
 
@@ -47,7 +51,7 @@ export interface QualifyAndCommitInput {
 
 type RoundResult =
 	| QualificationResult
-	| { status: "Repair"; candidate: CandidateSubject; findings: readonly CanonicalFinding[] };
+	| { status: "Repair"; candidate: CandidateSubject; findings: readonly CanonicalFinding[]; phase: RepairPhase };
 
 type BackendTransaction =
 	| { kind: "git"; service: GitTransactionService }
@@ -158,7 +162,7 @@ export class QualifyAndCommit {
 				return result;
 			}
 			if (!this.repairAgent) {
-				const exhausted = { status: "ChangesRequired" as const, findings: result.findings };
+				const exhausted = { status: "ChangesRequired" as const, findings: result.findings, phase: result.phase, repairRounds: round };
 				await this.writeProgress(progressPath, {
 					schemaVersion: 1,
 					attemptId: state.attemptId,
@@ -177,7 +181,7 @@ export class QualifyAndCommit {
 					phase: "completed",
 					round,
 				});
-				return { status: "ChangesRequired", findings: result.findings };
+				return { status: "ChangesRequired", findings: result.findings, phase: result.phase, repairRounds: round };
 			}
 			await this.writeProgress(progressPath, {
 				schemaVersion: 1,
@@ -206,6 +210,7 @@ export class QualifyAndCommit {
 	): Promise<RoundResult> {
 		if (input.approvedDesign.caller !== input.workflow) throw new Error("Qualification workflow differs from approved design");
 		if (input.approvedDesign.behavior.kind !== "contract") throw new Error("Write qualification requires behavior contract");
+		const design = await loadApprovedDesignContent(this.store, this.ref, input.approvedDesign);
 		const normalization = await this.normalizer.runExactlyTwoPasses();
 		const candidate = await this.trees.sealCandidate({
 			normalization,
@@ -243,7 +248,17 @@ export class QualifyAndCommit {
 		const behaviorExecutions = behaviorEvidence.map(toObservationExecution);
 		const behavior = verifyCandidateBehavior(candidate, input.approvedDesign, behaviorCommands, behaviorExecutions);
 		if (behavior.verdict === "Blocked") return { status: "Blocked", reason: "behavior observation changed candidate" };
-		if (behavior.verdict === "NotVerified") return { status: "NotVerified" };
+		if (behavior.verdict === "NotVerified") {
+			await this.writeImmutableOrVerify(
+				`verification/${evidenceSubjectDigest(candidate)}/${canonicalDigest(behavior.record)}.json`,
+				Buffer.from(canonicalJson(behavior.record)),
+			);
+			const coverage = analyzeClaimCoverage(candidate, input.approvedDesign.behavior.contract.claimKeys, behaviorCommands, behaviorExecutions);
+			if (coverage.missingKeys.length || coverage.inconclusiveObservationIds.length || coverage.unexecutedObservationIds.length) {
+				return { status: "Blocked", reason: "behavior observations lack complete stable coverage" };
+			}
+			return (await this.gateFailure("behavior", behaviorEvidence, candidate, round)) ?? { status: "NotVerified" };
+		}
 		if (behavior.verdict === "Inconclusive") return { status: "Inconclusive" };
 		const codeSubject = { schemaVersion: 1 as const, kind: "candidate-code" as const, candidate };
 		const review = await this.panel.review({
@@ -251,6 +266,8 @@ export class QualifyAndCommit {
 			frozenArtifact: rendered.patch,
 			task: [
 				`Review the exact qualified candidate for the operator goal:\n\n${input.userOrigin.goal}`,
+				`Approved structured design: ${design}`,
+				`Coordinator-minted trusted behavior obligations: ${canonicalJson(input.approvedDesign.behavior)}`,
 				...(input.resolutionFeedback ? [`Operator resolution guidance:\n\n${input.resolutionFeedback}`] : []),
 			].join("\n\n"),
 			recaptureSubjectDigest: async () => {
@@ -272,8 +289,8 @@ export class QualifyAndCommit {
 		if (!review.complete) return { status: "Blocked", reason: "code review panel incomplete", diagnostics: review.diagnostics };
 		if (!review.record.approved) {
 			return round < this.policy.machine.maxRepairRounds
-				? { status: "Repair", candidate, findings: review.findings }
-				: { status: "ChangesRequired", findings: review.findings };
+				? { status: "Repair", candidate, findings: review.findings, phase: "code review" }
+				: { status: "ChangesRequired", findings: review.findings, phase: "code review", repairRounds: round };
 		}
 		const verificationPath = `verification/${evidenceSubjectDigest(candidate)}.json`;
 		await this.writeImmutableOrVerify(verificationPath, Buffer.from(canonicalJson(behavior.record)));
@@ -379,25 +396,29 @@ export class QualifyAndCommit {
 	}
 
 	private async gateFailure(
-		category: "quick" | "full",
+		category: "quick" | "full" | "behavior",
 		evidence: readonly ReceiptEvidence[],
 		candidate: CandidateSubject,
 		round: number,
 	): Promise<RoundResult | undefined> {
-		const missing = evidence.filter((item) => !item.execution.receipt);
-		if (missing.length === 0) return undefined;
-		if (missing.some((item) => item.execution.record.outcome !== "failed")) {
-			return { status: "Blocked", reason: `${category} gate did not produce stable passing evidence` };
+		if (evidence.some((item) => !stableExecution(item, candidate))) {
+			return { status: "Blocked", reason: `${category} gate did not produce stable complete evidence` };
 		}
-		if (round >= this.policy.machine.maxRepairRounds) {
-			return { status: "Blocked", reason: `${category} gate failed after all repair rounds` };
-		}
+		const failed = evidence.filter((item) => item.execution.record.outcome === "failed");
+		if (failed.length === 0) return undefined;
+		const phase = category === "behavior" ? "behavior observations" : `${category} gates` as const;
 		const findings = await Promise.all(
-			missing.map(async ({ command, execution }, index): Promise<CanonicalFinding> => ({
+			failed.map(async ({ command, execution }, index): Promise<CanonicalFinding> => ({
 				id: `gate:${category}:${command.id}:${index + 1}`,
 				reviewerId: `machine-gate/${command.id}`,
 				severity: "blocker",
 				title: `${category} gate failed: ${command.id}`,
+				evidence: [
+					`Candidate: ${evidenceSubjectDigest(candidate)}`,
+					`Command: ${command.id}; argv digest: ${command.argvDigest()}`,
+					`Execution: ${execution.recordArtifact.path}; digest: ${execution.recordArtifact.digest}`,
+				],
+				recommendation: `Repair the ${category} failure without weakening the approved contract or trusted checks, then rerun complete qualification.`,
 				detail: [
 					`Trusted command: ${canonicalJson(command.argv)}`,
 					`Exit code: ${execution.record.exitCode}`,
@@ -407,7 +428,9 @@ export class QualifyAndCommit {
 				].join("\n\n"),
 			})),
 		);
-		return { status: "Repair", candidate, findings };
+		return round < this.policy.machine.maxRepairRounds
+			? { status: "Repair", candidate, findings, phase }
+			: { status: "ChangesRequired", findings, phase, repairRounds: round };
 	}
 
 	private async gateOutput(path: string): Promise<string> {
@@ -435,6 +458,33 @@ export class QualifyAndCommit {
 			} catch {}
 		}
 		return validateCommitMessage(fallback).text;
+	}
+}
+
+function stableExecution({ command, execution }: ReceiptEvidence, candidate: CandidateSubject): boolean {
+	try {
+		const record = decodeGateRecord(execution.record);
+		const subjectDigest = evidenceSubjectDigest(candidate);
+		const observationDigest = observationSubjectDigest(candidate.observation);
+		if (
+			record.subjectDigest !== subjectDigest ||
+			record.commandId !== command.id || record.argvDigest !== command.argvDigest() ||
+			record.source !== command.source || record.category !== command.category ||
+			record.beforeObservationDigest !== observationDigest || record.afterObservationDigest !== observationDigest ||
+			record.terminationSignal !== null || !record.stdout.complete || !record.stderr.complete ||
+			!execution.recordArtifact?.complete
+		) return false;
+		if (record.outcome === "failed") return !execution.receipt && !execution.receiptArtifact;
+		if (record.outcome !== "passed" || !execution.receipt || !execution.receiptArtifact?.complete) return false;
+		const receipt = decodeObservationReceipt(execution.receipt);
+		return receipt.subjectDigest === subjectDigest && receipt.executionId === record.executionId &&
+			receipt.commandId === command.id && receipt.argvDigest === command.argvDigest() &&
+			receipt.source === command.source && receipt.category === command.category &&
+			canonicalJson(receipt.record) === canonicalJson(execution.recordArtifact) &&
+			canonicalJson(receipt.stdout) === canonicalJson(record.stdout) &&
+			canonicalJson(receipt.stderr) === canonicalJson(record.stderr);
+	} catch {
+		return false;
 	}
 }
 

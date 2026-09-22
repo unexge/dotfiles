@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { userOriginFromRegisteredCommand } from "../src/application/user-origin.ts";
 import { RunAuthority } from "../src/application/run-authority.ts";
@@ -256,7 +256,7 @@ describe("command service controls", () => {
 			proposedOutcome: "ChangesRequired",
 			goal: initial.goal,
 			design,
-			findings: [{ id: "r1:lease", reviewerId: "opus", severity: "blocker", title: "Lease", detail: "Use the repository lease" }],
+			findings: [{ id: "r1:lease", reviewerId: "opus", severity: "blocker", title: "Lease", detail: "Use the repository lease", path: "src/lease.ts", line: 9, evidence: ["Concurrent write reproduced"], recommendation: "Acquire before mutation" }],
 		}));
 		await authority.complete("ChangesRequired", "outputs/design.json", "2026-08-25T00:00:02.000Z");
 		runtime.result = { ref, state: await runtime.store.load(ref) };
@@ -289,7 +289,7 @@ describe("command service controls", () => {
 		);
 		expect(editorCalls).toEqual([{
 			title: "Finding 1/1: Lease",
-			value: "Use the repository lease\n\nDecision: <enter decision>",
+			value: "Use the repository lease\nLocation: src/lease.ts:9\nEvidence: Concurrent write reproduced\nRecommendation: Acquire before mutation\n\nDecision: <enter decision>",
 		}]);
 		expect(confirmations).toEqual([`Collected 1 decision for design run ${ref.runId.slice(0, 8)}.`]);
 		expect(runtime.request).toMatchObject({
@@ -297,6 +297,16 @@ describe("command service controls", () => {
 			sourceDesignRunId: ref.runId,
 			designFeedback: "## blocker: Lease\nUse the repository lease.\n\nDecision: Use the external repository lease.",
 		});
+
+		const allEditor = vi.fn(async (_title: string, _value: string) => "Decision: use the repository lease.");
+		await service.execute(
+			{ kind: "resolve", runId: ref.runId, accept: false },
+			userOriginFromRegisteredCommand("resolve all"),
+			{ ...ctx, ui: { ...ctx.ui, select: async () => "Edit all at once", editor: allEditor } } as unknown as ExtensionCommandContext,
+		);
+		for (const detail of ["src/lease.ts:9", "Concurrent write reproduced", "Acquire before mutation"]) {
+			expect(allEditor.mock.calls[0][1]).toContain(detail);
+		}
 
 		const noPromptCtx = {
 			...ctx,
@@ -319,6 +329,9 @@ describe("command service controls", () => {
 			designFeedback: [
 				"## blocker: Lease",
 				"Use the repository lease",
+				"Location: src/lease.ts:9",
+				"Evidence: Concurrent write reproduced",
+				"Recommendation: Acquire before mutation",
 				"Decision: Accepted as a known limitation. Proceed without addressing this finding.",
 			].join("\n"),
 		});

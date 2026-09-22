@@ -40,6 +40,10 @@ export interface CanonicalFinding {
 	severity: "blocker" | "important" | "suggestion";
 	title: string;
 	detail: string;
+	path?: string;
+	line?: number;
+	evidence?: readonly string[];
+	recommendation?: string;
 }
 
 const completePanelResults = new WeakMap<object, string>();
@@ -322,11 +326,9 @@ export class ReviewPanel {
 			model: result.model,
 			report,
 			findings: report.findings.map((finding) => ({
+				...finding,
 				id: this.canonicalFindingId(reviewer.index, finding.id),
 				reviewerId: reviewer.id,
-				severity: finding.severity,
-				title: finding.title,
-				detail: finding.detail,
 			})),
 		};
 	}

@@ -70,6 +70,8 @@ function finding(severity: "blocker" | "important" | "suggestion", id = "f1") {
 		severity,
 		title: "Finding",
 		detail: "Concrete detail",
+		path: "src/feature.ts",
+		line: 12,
 		evidence: ["evidence"],
 		recommendation: "Fix it",
 	};
@@ -299,6 +301,15 @@ describe("complete review panel", () => {
 			recaptureSubjectDigest: async () => reviewSubjectDigest(subject),
 		});
 		expect(result).toMatchObject({ complete: true, record: { approved: false } });
+		const expectedFindings = [{ ...substantive, id: "r1:f1", reviewerId: reviewerModels[0] }];
+		expect(result).toMatchObject({ findings: expectedFindings });
+		const reloaded = await values.panel.review({
+			subject,
+			frozenArtifact: "design",
+			task: "Reload",
+			recaptureSubjectDigest: async () => reviewSubjectDigest(subject),
+		});
+		expect(reloaded).toMatchObject({ findings: expectedFindings });
 	});
 
 	it("drops failed adjudication without changing suggestion-only approval", async () => {

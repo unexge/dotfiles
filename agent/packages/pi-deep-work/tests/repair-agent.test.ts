@@ -1,3 +1,5 @@
+import { persistApprovedDesign, structuredDesign } from "./helpers/approved-design.ts";
+import { canonicalJson } from "../src/policy/canonical-json.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -97,8 +99,11 @@ describe("RepairAgent", () => {
 			let delegatedTools: WorkspaceAgentTools | undefined;
 			let writeMutation = true;
 			let reportedPath = "repair.txt";
+			const approvedDesign = await persistApprovedDesign(store, ref, await captureGitObservation(repository, policy.digest, runner));
+			const tasks: string[] = [];
 			const delegated = {
-				runMutation: async () => {
+				runMutation: async (job: { task: string }) => {
+					tasks.push(job.task);
 					if (writeMutation) await delegatedTools!.write.execute(
 						"repair",
 						{ path: "repair.txt", content: "repaired\n" },
@@ -144,16 +149,29 @@ describe("RepairAgent", () => {
 				store,
 				ref,
 			);
-			await repair.repair({
+			const repairInput = {
 				round: 1,
 				candidate: { kind: "git" } as never,
-				approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+				approvedDesign,
 				findings: [
-					{ id: "r1:f1", reviewerId: "opus", severity: "important", title: "Fix", detail: "Repair it" },
+					{ id: "r1:f1", reviewerId: "opus", severity: "important" as const, title: "Fix", detail: "Repair it" },
 				],
 				checkpointSequence: 1,
 				createdAt: "2026-08-25T00:00:02.000Z",
-			});
+			};
+			const original = await store.readArtifact(ref, approvedDesign.design.artifactPath);
+			for (const fault of ["missing", "tampered"]) {
+				if (fault === "missing") await rm(join(ref.directory, "artifacts", approvedDesign.design.artifactPath));
+				else await store.writeArtifact(ref, approvedDesign.design.artifactPath, "{}");
+				await expect(repair.repair(repairInput)).rejects.toThrow();
+				expect(tasks).toEqual([]);
+				expect(delegatedTools).toBeUndefined();
+				await expect(readFile(join(fixture.root, "repair.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+				await store.writeArtifact(ref, approvedDesign.design.artifactPath, original);
+			}
+			await repair.repair(repairInput);
+			expect(tasks[0]).toContain(canonicalJson(structuredDesign));
+			expect(tasks[0]).toContain(canonicalJson(approvedDesign.behavior));
 			expect(await readFile(join(fixture.root, "repair.txt"), "utf8")).toBe("repaired\n");
 			const checkpoint = join(
 				ref.directory,
@@ -177,7 +195,7 @@ describe("RepairAgent", () => {
 				repair.repair({
 					round: 2,
 					candidate: { kind: "git" } as never,
-					approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+					approvedDesign,
 					findings: [
 						{ id: "r1:f1", reviewerId: "opus", severity: "important", title: "Fix", detail: "Repair it" },
 					],
@@ -193,7 +211,7 @@ describe("RepairAgent", () => {
 				repair.repair({
 					round: 3,
 					candidate: { kind: "git" } as never,
-					approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+					approvedDesign,
 					findings: [
 						{ id: "r1:f1", reviewerId: "opus", severity: "important", title: "Fix", detail: "Repair it" },
 					],

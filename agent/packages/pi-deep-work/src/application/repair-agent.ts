@@ -6,6 +6,7 @@ import type { BackendTreeService } from "../gates/tree-backend.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
 import type { CanonicalFinding } from "../review/panel.ts";
+import { loadApprovedDesignContent } from "../service/continuation.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 import { observationSubjectDigest } from "../subject/content.ts";
 import type { CandidateSubject } from "../subject/types.ts";
@@ -61,6 +62,7 @@ export class RepairAgent {
 			throw new Error("Repair requires at least one blocker or important finding");
 		}
 		this.baseGateway.assertAuthority(this.authority);
+		const design = await loadApprovedDesignContent(this.store, this.ref, input.approvedDesign);
 		const phase = new MutationPhase(`repair-${input.round}`);
 		const reason = `Repair ${input.round} left the checkout without a complete mutation checkpoint`;
 		const options = mutationEffectOptions(phase, reason);
@@ -72,7 +74,8 @@ export class RepairAgent {
 					label: `repair round ${input.round}`,
 					task: [
 						"Repair only the validated blocker/important findings against the exact approved design and candidate.",
-						`Approved design: ${input.approvedDesign.approvedDesignId}`,
+						`Approved structured design: ${design}`,
+						`Coordinator-minted trusted behavior obligations: ${canonicalJson(input.approvedDesign.behavior)}`,
 						`Candidate: ${canonicalJson(input.candidate)}`,
 						`Findings: ${canonicalJson(input.findings)}`,
 						...(input.operatorGuidance ? ["Operator resolution guidance:", input.operatorGuidance] : []),

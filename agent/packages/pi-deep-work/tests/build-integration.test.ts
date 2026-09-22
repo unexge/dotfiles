@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,11 +11,12 @@ import { DesignApprover } from "../src/application/approve-design.ts";
 import { WritePreflight } from "../src/application/begin-write.ts";
 import { ImplementationAgent } from "../src/application/implementation-agent.ts";
 import { QualifyAndCommit } from "../src/application/qualify-and-commit.ts";
+import { RepairAgent } from "../src/application/repair-agent.ts";
 import { RunAuthority } from "../src/application/run-authority.ts";
 import { attemptId } from "../src/application/types.ts";
 import { userOriginFromRegisteredCommand } from "../src/application/user-origin.ts";
 import { TrustedCommandCatalog } from "../src/gates/catalog.ts";
-import { GateExecutor } from "../src/gates/executor.ts";
+import { GateExecutor, type GateExecution } from "../src/gates/executor.ts";
 import { Normalizer } from "../src/gates/normalizer.ts";
 import { BackendTreeService } from "../src/gates/tree-backend.ts";
 import { GitTransactionService } from "../src/git/transaction.ts";
@@ -45,9 +46,15 @@ const temporary: string[] = [];
 const jjAvailability = await detectJjAvailability();
 const reviewerModel = "test/claude-opus-4-8";
 
-function policy(behaviorPass = true) {
+type BehaviorFault = "timed_out" | "cancelled" | "output_overflow" | "incomplete" | "drifted" |
+	"missing-receipt" | "missing-receipt-artifact" | "foreign-command" | "foreign-subject" |
+	"incomplete-failure-output" | "missing-failure-record" | "failed-drift";
+
+function policy(behaviorPass = true, repairRounds = 0, mixedFailure = false) {
 	const command = [process.execPath, "-e", "process.exit(0)"];
-	const behaviorCommand = [process.execPath, "-e", `process.exit(${behaviorPass ? 0 : 1})`];
+	const behaviorCommand = repairRounds > 0
+		? [process.execPath, "-e", "const fs=require('fs'); console.error('expected repaired feature'); process.exit(fs.readFileSync('feature.rs','utf8').includes('repaired') ? 0 : 1)"]
+		: [process.execPath, "-e", `process.exit(${behaviorPass ? 0 : 1})`];
 	return resolvePolicy(
 		decodeMachinePolicy({
 			schemaVersion: 2,
@@ -56,11 +63,14 @@ function policy(behaviorPass = true) {
 				reviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
 			},
 			concurrency: 1,
-			maxRepairRounds: 0,
+			maxRepairRounds: repairRounds,
 			commandTimeoutMs: 10_000,
 			minimumQuickGates: [{ id: "quick", languages: ["rust"], argv: command, timeoutMs: 2_000 }],
 			minimumFullGates: [{ id: "full", languages: ["rust"], argv: command, timeoutMs: 2_000 }],
-			observations: [{ id: "behavior", claimKeys: ["behavior.ok"], argv: behaviorCommand, timeoutMs: 2_000 }],
+			observations: [
+				{ id: "behavior", claimKeys: ["behavior.ok"], argv: behaviorCommand, timeoutMs: 2_000 },
+				...(mixedFailure ? [{ id: "companion", claimKeys: ["companion.ok"], argv: command, timeoutMs: 2_000 }] : []),
+			],
 			verificationContracts: [],
 			selectors: [],
 		}),
@@ -171,7 +181,7 @@ class BuildResumeRuntime extends WorkflowRuntime {
 	}
 }
 
-async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promise<void> {
+async function runCase(kind: RepositoryFixtureKind, behaviorPass = true, repairRounds = 0, fault?: BehaviorFault): Promise<void> {
 	const fixture = await createRepositoryFixture(kind);
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-build-integration-"));
 	temporary.push(agentDir);
@@ -200,7 +210,7 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			}
 		};
 		const repository = await detectRepository(fixture.root, runner);
-		const resolved = policy(behaviorPass);
+		const resolved = policy(behaviorPass, repairRounds, fault !== undefined);
 		const store = new RunStore(agentDir);
 		const initial = {
 			schemaVersion: 1 as const,
@@ -230,6 +240,7 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 		);
 		const trees = new BackendTreeService(authority, repository, resolved.digest, runner, join(agentDir, "scratch"));
 		let mutationTools: WorkspaceAgentTools | undefined;
+		const repairTasks: string[] = [];
 		const gateway = {
 			assertAuthority(value: RunAuthority) {
 				if (value !== authority) throw new Error("wrong authority");
@@ -252,10 +263,13 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			withWorkspaceTools(tools: WorkspaceAgentTools) {
 				mutationTools = tools;
 				return {
-					runMutation: async () => {
+					runMutation: async (job: { kind: string; task: string }) => {
+						if (job.kind === "repair") repairTasks.push(job.task);
 						await mutationTools!.write.execute(
 							"implement",
-							{ path: "feature.rs", content: "pub fn feature() -> bool { true }\n" },
+							{ path: "feature.rs", content: job.kind === "repair" && behaviorPass
+								? "pub fn feature() -> bool { true } // repaired\n"
+								: `pub fn feature() -> bool { true } // round ${repairTasks.length}\n` },
 							undefined,
 							() => undefined,
 							undefined as never,
@@ -301,6 +315,27 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 				? captureGitObservation(repository, resolved.digest, runner)
 				: captureJjObservation(repository, resolved.digest, runner);
 		const gates = new GateExecutor(authority, store, ref, repository.kind, capture);
+		const executions: GateExecution[] = [];
+		const executeGate = gates.run.bind(gates);
+		gates.run = async (command, candidate) => {
+			const execution = await executeGate(command, candidate);
+			executions.push(execution);
+			if (command.id !== "companion" || !fault) return execution;
+			if (fault === "missing-receipt") delete execution.receipt;
+			else if (fault === "missing-receipt-artifact") delete execution.receiptArtifact;
+			else if (fault === "foreign-command") execution.record.argvDigest = "f".repeat(64);
+			else if (fault === "foreign-subject") execution.record.subjectDigest = "f".repeat(64);
+			else {
+				delete execution.receipt;
+				delete execution.receiptArtifact;
+				execution.record.outcome = fault === "incomplete-failure-output" || fault === "missing-failure-record" || fault === "failed-drift" ? "failed" : fault;
+				execution.record.exitCode = 1;
+				if (fault === "incomplete-failure-output") execution.record.stdout.complete = false;
+				if (fault === "missing-failure-record") execution.recordArtifact.complete = false;
+				if (fault === "drifted" || fault === "failed-drift") execution.record.afterObservationDigest = "f".repeat(64);
+			}
+			return execution;
+		};
 		const backend =
 			repository.kind === "git"
 				? {
@@ -322,7 +357,7 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			store,
 			ref,
 			backend,
-			null,
+			new RepairAgent(authority, gateway, await WorkspaceBoundary.open(repository, runner), trees, store, ref),
 		);
 		const preflight = new WritePreflight(authority, trees, repository, resolved, runner);
 		const gitHeadBefore =
@@ -359,13 +394,36 @@ async function runCase(kind: RepositoryFixtureKind, behaviorPass = true): Promis
 			workflow: "build",
 			stage: "implemented",
 			approvedDesign: {
-				behavior: { kind: "contract", contract: { selectors: [], observationIds: ["behavior"] } },
+				behavior: { kind: "contract", contract: { selectors: [], observationIds: fault ? ["behavior", "companion"] : ["behavior"] } },
 			},
 			implementationCheckpoint: { phase: "implement", sequence: 1 },
 		});
+		if (fault) {
+			expect(["Blocked", "Failed"]).toContain(result.status);
+			expect(repairTasks).toHaveLength(0);
+			expect((await fixture.run("git", ["rev-parse", "HEAD"])).stdout.trim()).toBe(gitHeadBefore);
+			expect(executions.map((entry) => entry.record.commandId)).toEqual(["quick", "full", "behavior", "companion"]);
+			return;
+		}
+		expect(repairTasks).toHaveLength(repairRounds > 0 && behaviorPass ? 1 : repairRounds);
+		const rounds = repairTasks.length + 1;
+		expect(executions.map((entry) => entry.record.commandId)).toEqual(Array.from({ length: rounds }, () => ["quick", "full", "behavior"]).flat());
+		expect(new Set(executions.map((entry) => entry.record.subjectDigest)).size).toBe(rounds);
+		for (const execution of executions.filter((entry) => entry.record.category === "observation")) {
+			const base = `verification/${execution.record.subjectDigest}`;
+			const path = execution.record.outcome === "failed"
+				? `${base}/${(await readdir(join(ref.directory, "artifacts", base)))[0]}` : `${base}.json`;
+			const record = JSON.parse((await store.readArtifact(ref, path)).toString("utf8"));
+			expect(record).toMatchObject({ subjectDigest: execution.record.subjectDigest, verdict: execution.record.outcome === "failed" ? "NotVerified" : "Verified" });
+		}
+		if (repairRounds > 0) expect(repairTasks[0]).toContain("expected repaired feature");
 		if (!behaviorPass) {
-			expect(result).toMatchObject({ status: "NotVerified" });
-			expect(await store.load(ref)).toMatchObject({ lifecycle: "Completed", outcome: "NotVerified" });
+			expect(result).toMatchObject({ status: "ChangesRequired" });
+			expect(await store.load(ref)).toMatchObject({ lifecycle: "Completed", outcome: "ChangesRequired" });
+			const output = JSON.parse((await store.readArtifact(ref, "outputs/build.json")).toString("utf8"));
+			expect(output).toMatchObject({ phase: "behavior observations", repairRounds, findings: [expect.objectContaining({ evidence: expect.arrayContaining([expect.stringContaining("Candidate:")]) })] });
+			expect(output.output).toContain("**Stopped during:** behavior observations");
+			expect(output.output).toContain(`/deep resolve ${ref.runId.slice(0, 8)}`);
 			if (repository.kind === "git") {
 				expect((await fixture.run("git", ["rev-parse", "HEAD"])).stdout.trim()).toBe(gitHeadBefore);
 				expect((await fixture.run("git", ["status", "--porcelain"])).stdout).toContain("feature.rs");
@@ -481,6 +539,12 @@ afterEach(async () => {
 describe("build integration", () => {
 	it("creates one local Git commit through the complete build path", async () => runCase("git"), 60_000);
 	it("leaves a non-Verified Git candidate uncommitted", async () => runCase("git", false), 60_000);
+	it("repairs a real stable behavior failure and freshly qualifies the new candidate", async () => runCase("git", true, 1), 60_000);
+	it("exhausts two behavior repairs without committing", async () => runCase("git", false, 2), 60_000);
+	it.each<BehaviorFault>(["timed_out", "cancelled", "output_overflow", "incomplete", "drifted", "missing-receipt", "missing-receipt-artifact", "foreign-command", "foreign-subject", "incomplete-failure-output", "missing-failure-record", "failed-drift"])(
+		"never repairs or commits a failed behavior observation mixed with %s evidence",
+		async (fault) => runCase("git", false, 1, fault), 60_000,
+	);
 	it("resumes qualification from the persisted implementation checkpoint", async () => runResumeCase(), 60_000);
 	it("rejects a mutable context that contradicts the immutable checkpoint", async () => runResumeCase(true), 60_000);
 	const jjIt = jjAvailability.available ? it : it.skip;

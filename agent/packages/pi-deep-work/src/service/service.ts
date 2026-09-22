@@ -4,6 +4,7 @@ import type { UserOrigin } from "../application/user-origin.ts";
 import { assertUserOrigin, userOriginForPersistedGoal } from "../application/user-origin.ts";
 import type { RunProjection } from "../store/schemas.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
+import type { CanonicalFinding } from "../review/panel.ts";
 import { decodeResolutionArtifact } from "../review/resolution.ts";
 import { digestFrozenArtifact } from "../review/subjects.ts";
 import type { RunRef } from "../store/run-store.ts";
@@ -13,13 +14,21 @@ import { detectRepository } from "../vcs/detect.ts";
 import { commandRunner } from "../vcs/runner.ts";
 import { VcsDetectionError } from "../vcs/types.ts";
 import { loadRunRecords } from "./records.ts";
-import { readBuildContext, readFixContext } from "./write-context.ts";
 import { WorkflowRuntime, type ResolutionSource, type StartRequest } from "./runtime.ts";
 import type { ParsedCommand } from "./command.ts";
 import {
 	DeepWorkRunPresentation,
 	deepWorkRunEntryType,
 } from "./presentation.ts";
+
+function findingDetails(finding: CanonicalFinding): string[] {
+	return [
+		finding.detail,
+		...(finding.path ? [`Location: ${finding.path}${finding.line === undefined ? "" : `:${finding.line}`}`] : []),
+		...(finding.evidence ?? []).map((entry) => `Evidence: ${entry}`),
+		...(finding.recommendation ? [`Recommendation: ${finding.recommendation}`] : []),
+	];
+}
 
 interface ActiveRun {
 	ref: RunRef;
@@ -158,6 +167,12 @@ export class DeepWorkService {
 		}
 		const bytes = await this.runtime.store.readArtifact(ref, state.summaryArtifact);
 		const artifact = decodeResolutionArtifact(JSON.parse(bytes.toString("utf8")));
+		const prepared = state.workflow === "build" || state.workflow === "fix"
+			? await this.runtime.prepareResolution(ref, ctx)
+			: undefined;
+		if (prepared && prepared.artifactDigest !== digestFrozenArtifact(bytes)) {
+			throw new Error("Resolution artifact changed before feedback collection");
+		}
 		let feedback: string;
 		if (accept) {
 			if (state.workflow !== "design") {
@@ -165,7 +180,7 @@ export class DeepWorkService {
 			}
 			feedback = artifact.findings.map((finding) => [
 				`## ${finding.severity}: ${finding.title}`,
-				finding.detail,
+				...findingDetails(finding),
 				"Decision: Accepted as a known limitation. Proceed without addressing this finding.",
 			].join("\n")).join("\n\n");
 		} else {
@@ -184,7 +199,7 @@ export class DeepWorkService {
 					"",
 					...artifact.findings.flatMap((finding) => [
 						`## ${finding.severity}: ${finding.title}`,
-						finding.detail,
+						...findingDetails(finding),
 						"Decision: <enter decision>",
 						"",
 					]),
@@ -193,7 +208,7 @@ export class DeepWorkService {
 			} else {
 				const decisions: string[] = [];
 				for (const [index, finding] of artifact.findings.entries()) {
-					const template = [finding.detail, "", "Decision: <enter decision>"].join("\n");
+					const template = [...findingDetails(finding), "", "Decision: <enter decision>"].join("\n");
 					const decision = (await ctx.ui.editor(
 						`Finding ${index + 1}/${artifact.findings.length}: ${finding.title}`,
 						template,
@@ -234,21 +249,8 @@ export class DeepWorkService {
 			);
 			return;
 		}
-		const writeContext = state.workflow === "build"
-			? await readBuildContext(this.runtime.store, ref)
-			: await readFixContext(this.runtime.store, ref);
-		if (!writeContext && !artifact.design) {
-			throw new Error("ChangesRequired artifact has no revisable design or durable write context");
-		}
-		const resolutionSource: ResolutionSource = {
-			runId: ref.runId,
-			workflow: state.workflow,
-			artifactDigest: digestFrozenArtifact(bytes),
-			...(artifact.design ? { design: artifact.design } : {}),
-			...(writeContext ? { writeContext } : {}),
-			findings: artifact.findings,
-			feedback,
-		};
+		if (!prepared) throw new Error("Missing validated write resolution source");
+		const resolutionSource: ResolutionSource = { ...prepared, feedback };
 		await this.start(
 			{ kind: "start", workflow: state.workflow, goal: state.goal },
 			origin,

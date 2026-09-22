@@ -118,6 +118,8 @@ function reviewReport(changesRequired: boolean) {
 						severity: "important",
 						title: "Design gap",
 						detail: "Missing invariant",
+						path: "src/cache.ts",
+						line: 8,
 						evidence: ["design"],
 						recommendation: "Add it",
 					},
@@ -371,6 +373,7 @@ describe("design workflow", () => {
 		await run(values, { source, feedback: "Keep the existing cache owner." });
 		expect(values.candidateJobs.every((job) => job.task.includes("Keep the existing cache owner."))).toBe(true);
 		expect(values.synthesisTask()).toContain("prior decision");
+		expect(values.reviewTasks.every((task) => task.includes("Keep the existing cache owner.") && task.includes("prior decision"))).toBe(true);
 		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
 		expect(artifact.source).toEqual({
 			runId: source.runId,
@@ -380,6 +383,15 @@ describe("design workflow", () => {
 		expect(await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8")).toContain(
 			"## Revision",
 		);
+		const handoff = await loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId);
+		const next = await fixture();
+		await run(next, { source: handoff, feedback: "Remove the extra scheduler." });
+		for (const task of next.reviewTasks) {
+			expect(task).toContain("Keep the existing cache owner.");
+			expect(task).toContain("Remove the extra scheduler.");
+		}
+		const nextHandoff = await loadDesignHandoff(next.store, next.ref.runId, next.ref.repositoryId);
+		expect(nextHandoff.feedback).toBe("Keep the existing cache owner.\n\nRemove the extra scheduler.");
 	});
 
 	it("revises substantive findings before approving the design", async () => {
@@ -392,6 +404,7 @@ describe("design workflow", () => {
 		expect(values.reviewTasks[0]).toContain("initial review");
 		expect(values.reviewTasks[1]).toContain("Re-review the revised design against these prior findings");
 		expect(values.reviewTasks[1]).toContain('"title":"Design gap"');
+		expect(values.reviewTasks[1]).toContain('"summary":"synthesis"');
 		expect(values.reviewTasks[1]).toContain("Do not introduce a new important finding");
 		const artifact = JSON.parse(await readFile(join(values.ref.directory, "artifacts/outputs/design.json"), "utf8"));
 		expect(artifact.designRevisionRounds).toBe(1);
@@ -416,7 +429,20 @@ describe("design workflow", () => {
 		);
 		const handoff = await loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId);
 		expect(handoff.findings).toEqual(result.findings);
+		expect(handoff.findings[0]).toMatchObject({ path: "src/cache.ts", line: 8, evidence: ["design"], recommendation: "Add it" });
 		expect(handoff.approvedDesign).toBeUndefined();
+		const markdown = await readFile(join(values.ref.directory, "artifacts/outputs/design.md"), "utf8");
+		for (const text of ["src/cache.ts:8", "Evidence:", "Recommendation: Add it"]) expect(markdown).toContain(text);
+		const minimalFindings = handoff.findings.map(({ id, reviewerId, severity, title, detail }) => ({ id, reviewerId, severity, title, detail }));
+		for (const invalid of [{ path: 1 }, { line: 0 }, { evidence: [1] }, { recommendation: false }]) {
+			await values.store.writeArtifact(values.ref, "outputs/design.json", JSON.stringify({ ...artifact, findings: [{ ...minimalFindings[0], ...invalid }] }));
+			await expect(loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId)).rejects.toThrow("Invalid design handoff");
+		}
+		await values.store.writeArtifact(values.ref, "outputs/design.json", JSON.stringify({ ...artifact, findings: minimalFindings }));
+		expect((await loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId)).findings).toEqual(minimalFindings);
+		const { findings: _findings, ...legacyArtifact } = artifact;
+		await values.store.writeArtifact(values.ref, "outputs/design.json", JSON.stringify({ ...legacyArtifact, approval: { ...artifact.approval, findings: minimalFindings } }));
+		expect((await loadDesignHandoff(values.store, values.ref.runId, values.ref.repositoryId)).findings).toEqual(minimalFindings);
 		await expect(readdir(join(values.ref.directory, "artifacts/approved-designs"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 

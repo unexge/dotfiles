@@ -391,6 +391,7 @@ describe("build workflow", () => {
 		expect(values.tasks.join("\n")).toContain("Preserve its accepted decisions");
 		expect(values.approve).toHaveBeenCalledWith(
 			expect.objectContaining({
+				reviewGuidance: expect.stringContaining("Keep the existing owner."),
 				sourceDesign: {
 					runId: source.runId,
 					approvedDesignId: source.approvedDesign!.approvedDesignId,
@@ -413,6 +414,8 @@ describe("build workflow", () => {
 		});
 		expect(values.tasks.join("\n")).toContain("Prior rejected design");
 		expect(values.tasks.join("\n")).toContain("Keep ownership in the existing service.");
+		expect(values.approve).toHaveBeenCalledWith(expect.objectContaining({ reviewGuidance: expect.stringContaining("Keep ownership in the existing service.") }));
+		expect(values.implementation.implement).toHaveBeenCalledWith(expect.objectContaining({ operatorGuidance: expect.stringContaining("Keep ownership in the existing service.") }));
 	});
 
 	it("blocks a build when the approved design observation drifted", async () => {
@@ -438,7 +441,7 @@ describe("build workflow", () => {
 	for (const status of ["ChangesRequired", "NotVerified", "Inconclusive"] as const) {
 		it(`completes the noncommit qualification outcome ${status}`, async () => {
 			const values = await fixture();
-			values.setQualification(status === "ChangesRequired" ? { status, findings: [] } : { status });
+			values.setQualification(status === "ChangesRequired" ? { status, findings: [], phase: "code review", repairRounds: 1 } : { status });
 			const result = await run(values);
 			expect(result.status).toBe(status);
 			expect(await values.store.load(values.ref)).toMatchObject({ lifecycle: "Completed", outcome: status });

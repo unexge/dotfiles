@@ -4,7 +4,7 @@ export function renderChangesRequiredMarkdown(input: {
 	runId: string;
 	workflow: "build" | "fix" | "review";
 	goal: string;
-	phase: "design review" | "code review";
+	phase: "design review" | "code review" | "quick gates" | "full gates" | "behavior observations";
 	findings: readonly CanonicalFinding[];
 	iterationCount?: number;
 }): string {
@@ -44,6 +44,9 @@ function findings(values: readonly CanonicalFinding[]): string[] {
 		"",
 		finding.detail,
 		"",
+		...(finding.path ? [`Location: \`${finding.path}${finding.line === undefined ? "" : `:${finding.line}`}\``, ""] : []),
+		...(finding.evidence?.length ? ["Evidence:", ...finding.evidence.map((entry) => `- ${entry}`), ""] : []),
+		...(finding.recommendation ? [`Recommendation: ${finding.recommendation}`, ""] : []),
 		`Reviewer: \`${finding.reviewerId}\``,
 		"",
 	]);

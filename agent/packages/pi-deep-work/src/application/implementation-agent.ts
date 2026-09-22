@@ -4,6 +4,7 @@ import type { ImplementationReport } from "../agents/schemas.ts";
 import type { BackendTreeService } from "../gates/tree-backend.ts";
 import { canonicalJson } from "../policy/canonical-json.ts";
 import type { ApprovedDesignRecord } from "../review/design.ts";
+import { loadApprovedDesignContent } from "../service/continuation.ts";
 import type { RunRef, RunStore } from "../store/run-store.ts";
 import type { MutationPhaseCheckpoint } from "../store/schemas.ts";
 import { observationSubjectDigest } from "../subject/content.ts";
@@ -20,6 +21,7 @@ export interface ImplementationInput {
 	checkpointSequence: number;
 	createdAt: string;
 	language?: AgentLanguage;
+	operatorGuidance?: string;
 }
 
 export interface ImplementationResult {
@@ -60,6 +62,7 @@ export class ImplementationAgent {
 
 	async implement(input: ImplementationInput): Promise<ImplementationResult> {
 		this.baseGateway.assertAuthority(this.authority);
+		const design = await loadApprovedDesignContent(this.store, this.ref, input.approvedDesign);
 		const phase = new MutationPhase("implement");
 		const reason = "Implementation left the checkout without a complete mutation checkpoint";
 		const options = mutationEffectOptions(phase, reason);
@@ -71,7 +74,9 @@ export class ImplementationAgent {
 					label: "implement approved design",
 					task: [
 						`Implement the approved design for the operator goal: ${input.goal}`,
-						`Approved design: ${canonicalJson(input.approvedDesign)}`,
+						`Approved structured design: ${design}`,
+						`Coordinator-minted trusted behavior obligations: ${canonicalJson(input.approvedDesign.behavior)}`,
+						...(input.operatorGuidance ? ["Operator resolution guidance:", input.operatorGuidance] : []),
 						"Modify only files required by the design. Return exact changed paths and an empty testSelectors array.",
 					].join("\n\n"),
 					...(input.language ? { language: input.language } : {}),

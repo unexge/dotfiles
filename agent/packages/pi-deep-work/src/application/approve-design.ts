@@ -29,6 +29,8 @@ interface ApproveDesignBase {
 	expectedObservationDigest: string;
 	approvedAt: string;
 	priorFindings?: readonly CanonicalFinding[];
+	priorDesign?: string;
+	reviewGuidance?: string;
 }
 
 export type ApproveDesignInput =
@@ -104,6 +106,7 @@ export class DesignApprover {
 			? [
 					"Re-review the revised design against these prior findings:",
 					canonicalJson(input.priorFindings),
+					...(input.priorDesign ? ["Previous reviewed design for comparison:", input.priorDesign] : []),
 					"Confirm whether each prior failure remains. Do not introduce a new important finding. Report a new blocker only when this revision introduced a concrete correctness, safety, or data-loss failure.",
 				]
 			: ["This is the initial review. Report all substantive findings together."];
@@ -115,6 +118,7 @@ export class DesignApprover {
 				input.userOrigin.goal,
 				"Coordinator-minted trusted behavior obligations:",
 				obligations,
+				...(input.reviewGuidance ? ["Operator guidance and accepted source decisions:", input.reviewGuidance] : []),
 				...reviewMode,
 			].join("\n\n"),
 			recaptureSubjectDigest: async () => {

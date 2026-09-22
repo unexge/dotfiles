@@ -121,6 +121,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			? [
 					`Use approved standalone design ${sourceIdentity!.approvedDesignId} as the design basis:`,
 					canonicalJson(input.sourceDesign.design),
+					...(input.sourceDesign.feedback ? ["Prior operator decisions:", input.sourceDesign.feedback] : []),
 					...(input.designFeedback ? ["Additional operator constraints:", input.designFeedback] : []),
 					"Preserve its accepted decisions. Add only build-specific detail and trusted behavior selectors.",
 				].join("\n\n")
@@ -171,13 +172,15 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 				...(resolutionContext ? [resolutionContext] : []),
 				"All configured behavior observations are coordinator-selected. Return an empty testSelectors array.",
 			],
-			approve: async (candidate, priorFindings) => input.approver.approve({
+			approve: async (candidate, priorFindings, priorDesign) => input.approver.approve({
 				caller: "build",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
 				expectedObservationDigest: initialObservationDigest,
 				approvedAt: input.approvedAt,
 				...(priorFindings.length > 0 ? { priorFindings } : {}),
+				...(priorDesign ? { priorDesign: canonicalJson(priorDesign) } : {}),
+				reviewGuidance: [sourceContext, resolutionContext].filter(Boolean).join("\n\n"),
 				...(sourceIdentity ? { sourceDesign: sourceIdentity } : {}),
 			}),
 		});
@@ -247,9 +250,11 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			attemptId: contextState.attemptId,
 			approvedDesign: approval.record,
 		});
+		const operatorGuidance = [input.sourceDesign?.feedback, input.designFeedback, input.resolutionSource?.feedback].filter(Boolean).join("\n\n");
 		const implemented = await input.implementation.implement({
 			approvedDesign: approval.record,
 			goal: input.origin.goal,
+			operatorGuidance,
 			checkpointSequence: 1,
 			createdAt: input.checkpointedAt,
 		});
@@ -269,6 +274,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			workflow: "build",
 			approvedDesign: approval.record,
 			userOrigin: input.origin,
+			resolutionFeedback: operatorGuidance,
 			checkpointSequence: 2,
 			authorizedAt: input.authorizedAt,
 		});
@@ -292,9 +298,9 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 					runId: input.ref.runId,
 					workflow: "build",
 					goal: input.origin.goal,
-					phase: "code review",
+					phase: qualification.phase,
 					findings: qualification.findings,
-					iterationCount: input.policy.machine.maxRepairRounds,
+					iterationCount: qualification.repairRounds,
 				})
 			: undefined;
 		const markdownArtifact = markdown
@@ -315,7 +321,7 @@ export async function runBuildWorkflow(input: BuildWorkflowInput): Promise<Build
 			approvedDesignId: approval.record.approvedDesignId,
 			implementationCheckpoint: implemented.checkpoint,
 			observationSubjectDigest: observationSubjectDigest(current.observation),
-			...(qualification.status === "ChangesRequired" ? { findings: qualification.findings } : {}),
+			...(qualification.status === "ChangesRequired" ? { findings: qualification.findings, phase: qualification.phase, repairRounds: qualification.repairRounds } : {}),
 		};
 		await input.store.writeArtifact(input.ref, artifactPath, Buffer.from(canonicalJson(artifact)));
 		const after = await input.trees.captureObservation();

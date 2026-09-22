@@ -1,3 +1,5 @@
+import { persistApprovedDesign, structuredDesign } from "./helpers/approved-design.ts";
+import { canonicalJson } from "../src/policy/canonical-json.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -94,8 +96,10 @@ async function fixture(scenario: "ok" | "status" | "path" | "selector" | "provid
 	const manualInspection = vi.fn().mockResolvedValue(undefined);
 	const authority = { manualInspection } as unknown as RunAuthority;
 	let tools: WorkspaceAgentTools | undefined;
+	const tasks: string[] = [];
 	const delegated = {
-		runMutation: async () => {
+		runMutation: async (job: { task: string }) => {
+			tasks.push(job.task);
 			if (scenario !== "none") {
 				await tools!.write.execute(
 					"implement",
@@ -154,7 +158,8 @@ async function fixture(scenario: "ok" | "status" | "path" | "selector" | "provid
 		store,
 		ref,
 	);
-	return { repositoryFixture, agentDir, store, ref, active, manualInspection, agent };
+	const approvedDesign = await persistApprovedDesign(store, ref, await captureGitObservation(repository, policy.digest, runner));
+	return { repositoryFixture, agentDir, store, ref, active, manualInspection, agent, approvedDesign, tasks };
 }
 
 afterEach(async () => {
@@ -162,15 +167,29 @@ afterEach(async () => {
 });
 
 describe("ImplementationAgent", () => {
+	it.each(["missing", "tampered"])("rejects %s approved bytes before granting mutation tools", async (fault) => {
+		const values = await fixture("ok");
+		try {
+			const path = values.approvedDesign.design.artifactPath;
+			if (fault === "missing") await rm(join(values.ref.directory, "artifacts", path));
+			else await values.store.writeArtifact(values.ref, path, "{}");
+			await expect(values.agent.implement({ approvedDesign: values.approvedDesign, goal: "implement", checkpointSequence: 1, createdAt: values.active.updatedAt })).rejects.toThrow();
+			expect(values.tasks).toEqual([]);
+			await expect(readFile(join(values.repositoryFixture.root, "implemented.rs"))).rejects.toMatchObject({ code: "ENOENT" });
+			expect(values.manualInspection).not.toHaveBeenCalled();
+		} finally { await values.repositoryFixture.cleanup(); }
+	});
 	it("owns mutation tools and persists an exact implementation checkpoint", async () => {
 		const values = await fixture("ok");
 		try {
 			const result = await values.agent.implement({
-				approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+				approvedDesign: values.approvedDesign,
 				goal: "implement behavior",
 				checkpointSequence: 1,
 				createdAt: "2026-08-25T00:00:02.000Z",
 			});
+			expect(values.tasks[0]).toContain(canonicalJson(structuredDesign));
+			expect(values.tasks[0]).toContain(canonicalJson(values.approvedDesign.behavior));
 			expect(result.report.changes).toEqual([{ path: "implemented.rs", detail: "added" }]);
 			expect(result.checkpoint).toMatchObject({ phase: "implement", mutation: { fileCount: 1 } });
 			expect(await readFile(join(values.repositoryFixture.root, "implemented.rs"), "utf8")).toContain("implemented");
@@ -186,7 +205,7 @@ describe("ImplementationAgent", () => {
 			try {
 				await expect(
 					values.agent.implement({
-						approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+						approvedDesign: values.approvedDesign,
 						goal: "implement behavior",
 						checkpointSequence: 1,
 						createdAt: "2026-08-25T00:00:02.000Z",
@@ -204,7 +223,7 @@ describe("ImplementationAgent", () => {
 		try {
 			await expect(
 				values.agent.implement({
-					approvedDesign: { approvedDesignId: "a".repeat(64), caller: "build" } as never,
+					approvedDesign: values.approvedDesign,
 					goal: "implement behavior",
 					checkpointSequence: 1,
 					createdAt: "2026-08-25T00:00:02.000Z",
@@ -221,7 +240,7 @@ describe("ImplementationAgent", () => {
 		try {
 			await expect(
 				values.agent.implement({
-					approvedDesign: { approvedDesignId: "a".repeat(64) } as never,
+					approvedDesign: values.approvedDesign,
 					goal: "implement behavior",
 					checkpointSequence: 1,
 					createdAt: "2026-08-25T00:00:02.000Z",

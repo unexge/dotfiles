@@ -181,7 +181,7 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 					throw new FixPreconditionError("Fix design selectors differ from the clean red regression selectors");
 				}
 			},
-			approve: async (candidate, priorFindings) => input.approver.approve({
+			approve: async (candidate, priorFindings, priorDesign) => input.approver.approve({
 				caller: "fix",
 				design: canonicalJson(candidate),
 				userOrigin: input.origin,
@@ -189,6 +189,7 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 				selectorProposals: regression.selectorProposals,
 				approvedAt: input.approvedAt,
 				...(priorFindings.length > 0 ? { priorFindings } : {}),
+				...(priorDesign ? { priorDesign: canonicalJson(priorDesign) } : {}),
 			}),
 		});
 		const design = canonicalJson(revised.design);
@@ -300,9 +301,9 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 					runId: input.ref.runId,
 					workflow: "fix",
 					goal: input.origin.goal,
-					phase: "code review",
+					phase: qualification.phase,
 					findings: qualification.findings,
-					iterationCount: input.policy.machine.maxRepairRounds,
+					iterationCount: qualification.repairRounds,
 				})
 			: undefined;
 		const markdownArtifact = markdown
@@ -321,7 +322,7 @@ export async function runFixWorkflow(input: FixWorkflowInput): Promise<FixWorkfl
 			redRegressionSubjectDigest: evidenceSubjectDigest(regression.evidence.regressionSubject),
 			implementationCheckpoint: implemented.checkpoint,
 			observationSubjectDigest: observationSubjectDigest(current.observation),
-			...(qualification.status === "ChangesRequired" ? { findings: qualification.findings } : {}),
+			...(qualification.status === "ChangesRequired" ? { findings: qualification.findings, phase: qualification.phase, repairRounds: qualification.repairRounds } : {}),
 		};
 		await input.store.writeArtifact(input.ref, artifactPath, Buffer.from(canonicalJson(artifact)));
 		const after = await input.trees.captureObservation();

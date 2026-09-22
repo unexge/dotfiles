@@ -1,3 +1,4 @@
+import { structuredDesign } from "./helpers/approved-design.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -160,7 +161,7 @@ async function setup() {
 	const approver = new DesignApprover(panel, catalog, store, ref, capture);
 	const approved = await approver.approve({
 		caller: "build",
-		design: "approved design",
+		design: JSON.stringify(structuredDesign),
 		userOrigin: userOriginFromRegisteredCommand("build behavior"),
 		expectedObservationDigest: observationSubjectDigest(await capture()),
 		selectorProposals: [{ selectorId: "behavior-path", value: "tests/behavior.rs" }],
@@ -387,7 +388,7 @@ describe("commit authorization", () => {
 });
 
 describe("shared qualifyAndCommit", () => {
-	it("runs the fixed qualification order through one real Git commit", async () => {
+	it.each(["ok", "missing", "tampered"])("qualifies a structured design (%s), rejecting invalid bytes before normalization", async (fault) => {
 		const values = await setup();
 		const transaction = new GitTransactionService(
 			values.authority,
@@ -411,6 +412,18 @@ describe("shared qualifyAndCommit", () => {
 			null,
 		);
 		try {
+			if (fault !== "ok") {
+				const path = values.input.approvedDesign.design.artifactPath;
+				if (fault === "missing") await rm(join(values.ref.directory, "artifacts", path));
+				else await values.store.writeArtifact(values.ref, path, "{}");
+				const normalize = vi.spyOn(values.normalizer, "runExactlyTwoPasses");
+				const before = await values.trees.captureObservation();
+				await expect(qualifier.run({ workflow: "build", approvedDesign: values.input.approvedDesign, userOrigin: userOriginFromRegisteredCommand("build behavior"), checkpointSequence: 1, authorizedAt: now })).rejects.toThrow();
+				expect(normalize).not.toHaveBeenCalled();
+				expect(await values.trees.captureObservation()).toEqual(before);
+				await values.authority.cancel("invalid artifact", now);
+				return;
+			}
 			const result = await qualifier.run({
 				workflow: "build",
 				approvedDesign: values.input.approvedDesign,

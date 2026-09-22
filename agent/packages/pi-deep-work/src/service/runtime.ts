@@ -35,29 +35,24 @@ import { canonicalJson } from "../policy/canonical-json.ts";
 import { ReviewPanel, type CanonicalFinding } from "../review/panel.ts";
 import { decodeResolutionArtifact } from "../review/resolution.ts";
 import { digestFrozenArtifact } from "../review/subjects.ts";
-import type { ApprovedDesignRecord } from "../review/design.ts";
 import {
 	loadDesignHandoff,
 	type DesignHandoff,
 } from "../review/design-handoff.ts";
 import { RunStore, type RunRef } from "../store/run-store.ts";
+import { loadContinuationFeedback, loadWriteContinuation } from "./continuation.ts";
 import { loadRunRecords, type RepositoryRecord } from "./records.ts";
 import {
-	readBuildContext,
-	readFixContext,
+	restoreRedContextEvidence,
 	type BuildWriteContext,
 	type FixWriteContext,
 } from "./write-context.ts";
 import {
-	checkpointMatchesObservation,
 	resumeBuildFromContext,
 	resumeFixFromContext,
 } from "./write-resume.ts";
 import {
-	decode,
 	decodeRunProjection,
-	MutationPhaseCheckpointSchema,
-	type MutationPhaseCheckpoint,
 	type QueuedRun,
 	type RecoverableRun,
 	type RunProjection,
@@ -170,6 +165,14 @@ export class WorkflowRuntime {
 			canonicalRoot: repository.root,
 		});
 		const requestWithSource = await this.resolveDesignSource(request, repository.repositoryId);
+		if (requestWithSource.resolutionSource) {
+			const sourceRef = await this.store.find(requestWithSource.resolutionSource.runId);
+			const sourceState = await this.store.load(sourceRef);
+			if (sourceState.goal !== request.origin.goal || sourceState.policyDigest !== policy.digest || sourceRef.backend !== repository.kind) {
+				throw new Error("Resolution source contradicts workflow goal, backend, or policy");
+			}
+			await this.prepareResolution(sourceRef, ctx);
+		}
 		if (requestWithSource.workflow === "build" || requestWithSource.workflow === "fix") {
 			const catalog = await TrustedCommandCatalog.build(policy, repository.root);
 			catalog.assertWriteReady(requestWithSource.workflow);
@@ -299,10 +302,8 @@ export class WorkflowRuntime {
 					records.request.resolutionFeedback!,
 				)
 			: undefined;
-		if ((state.workflow === "fix" || state.workflow === "build") && !resolutionSource?.writeContext) {
-			const context =
-				state.workflow === "build" ? await readBuildContext(this.store, ref) : await readFixContext(this.store, ref);
-			if (context) return this.resumeWrite(ref, state, origin, ctx, repository, policy, models, hooks);
+		if (state.workflow === "fix" || state.workflow === "build") {
+			if (await loadWriteContinuation(this.store, ref)) return this.resumeWrite(ref, state, origin, ctx, repository, policy, models, hooks);
 			const observation =
 				repository.kind === "git"
 					? await captureGitObservation(repository, policy.digest, this.runner)
@@ -400,40 +401,19 @@ export class WorkflowRuntime {
 		models: ReturnType<typeof resolveModels>,
 		hooks: StartHooks,
 	): Promise<RunResult> {
-		const buildContext = state.workflow === "build" ? await readBuildContext(this.store, ref) : undefined;
-		const fixContext = state.workflow === "fix" ? await readFixContext(this.store, ref) : undefined;
-		const context = buildContext ?? fixContext;
-		if (!context) throw new Error("Write resume has no durable workflow context");
-		if (fixContext) await this.assertDurableCheckpoint(ref, fixContext.regressionCheckpoint);
-		if (context.stage !== "red") await this.assertApprovedDesign(ref, context.approvedDesign);
-		let checkpoint = context.stage === "implemented" ? context.implementationCheckpoint : undefined;
-		if (!checkpoint && context.stage === "approved" && context.attemptId === state.lastAttemptId) {
-			const persisted = await this.store.readCheckpoint(
-				ref,
-				state.lastAttemptId,
-				state.workflow === "build" ? 1 : 2,
-				"implement",
-			);
-			if (persisted && !("mutation" in persisted)) throw new Error("Write resume implementation checkpoint is incomplete");
-			checkpoint = persisted;
-		}
+		const continuation = await loadWriteContinuation(this.store, ref);
+		if (!continuation) throw new Error("Write resume has no durable workflow context");
+		const { context, checkpoint, evidenceRef } = continuation;
+		const records = await loadRunRecords(this.store, ref);
+		const resolution = records.request.resolutionSourceRunId
+			? await this.loadResolutionSource(records.request.resolutionSourceRunId, ref.repositoryId, records.request.resolutionArtifactDigest!, records.request.resolutionFeedback!)
+			: undefined;
 		const observation =
 			repository.kind === "git"
 				? await captureGitObservation(repository, policy.digest, this.runner)
 				: await captureJjObservation(repository, policy.digest, this.runner);
-		const observationDigest = observationSubjectDigest(observation);
-		if (checkpoint) {
-			const matching = await this.matchingWriteCheckpoint(ref, checkpoint, observationDigest, policy.digest);
-			if (!matching) throw new Error("Write resume checkout differs from the implementation checkpoint");
-			checkpoint = matching;
-		} else {
-			const expectedDigest =
-				context.workflow === "build"
-					? observationSubjectDigest(context.approvedDesign.reviewSubject.observation)
-					: context.regressionCheckpoint.subjectDigest;
-			if (observationDigest !== expectedDigest) {
-				throw new Error("Write resume checkout differs from the last safe workflow context");
-			}
+		if (observationSubjectDigest(observation) !== continuation.observationDigest) {
+			throw new Error("Write resume checkout differs from the latest safe workflow checkpoint");
 		}
 		let authority: RunAuthority;
 		try {
@@ -473,11 +453,9 @@ export class WorkflowRuntime {
 			);
 			const lockedObservation = await trees.captureObservation();
 			const lockedDigest = observationSubjectDigest(lockedObservation.observation);
-			const expectedDigest = checkpoint
-				? checkpoint.subjectDigest
-				: context.workflow === "build"
-					? observationSubjectDigest(context.approvedDesign.reviewSubject.observation)
-					: context.regressionCheckpoint.subjectDigest;
+			const lockedContinuation = await loadWriteContinuation(this.store, ref);
+			if (canonicalJson(lockedContinuation) !== canonicalJson(continuation)) throw new Error("Write continuation changed under lease");
+			const expectedDigest = continuation.observationDigest;
 			if (lockedDigest !== expectedDigest) {
 				await authority.manualInspection("Write resume checkout changed after repository lease acquisition", new Date().toISOString());
 				return { ref, state: await this.store.load(ref) };
@@ -523,9 +501,16 @@ export class WorkflowRuntime {
 				repair,
 			);
 			const completedAt = () => new Date().toISOString();
-			if (buildContext) {
+			const active = await this.store.load(ref);
+			if (active.lifecycle !== "Active") throw new Error("Write continuation requires an Active run");
+			const resolutionInputs = {
+				resolutionFeedback: await loadContinuationFeedback(this.store, ref),
+				...(resolution?.design ? { resolutionDesign: resolution.design } : {}),
+			};
+			if (context.workflow === "build") {
 				await resumeBuildFromContext({
-					context: buildContext,
+					context: { ...context, attemptId: active.attemptId },
+					...resolutionInputs,
 					...(checkpoint ? { checkpoint } : {}),
 					origin,
 					authority,
@@ -537,9 +522,12 @@ export class WorkflowRuntime {
 					ref,
 					completedAt,
 				});
-			} else if (fixContext) {
+			} else {
 				await resumeFixFromContext({
-					context: fixContext,
+					context: { ...context, attemptId: active.attemptId },
+					...resolutionInputs,
+					evidenceRef,
+					maxRevisionRounds: policy.machine.maxRepairRounds,
 					...(checkpoint ? { checkpoint } : {}),
 					origin,
 					authority,
@@ -568,54 +556,6 @@ export class WorkflowRuntime {
 			throw error;
 		}
 		return { ref, state: await this.store.load(ref) };
-	}
-
-	private async matchingWriteCheckpoint(
-		ref: RunRef,
-		base: MutationPhaseCheckpoint,
-		observationDigest: string,
-		policyDigest: string,
-	): Promise<MutationPhaseCheckpoint | undefined> {
-		await this.assertDurableCheckpoint(ref, base);
-		const latest = await this.readLatestRepairCheckpoint(ref);
-		if (latest) {
-			await this.assertDurableCheckpoint(ref, latest);
-			if (checkpointMatchesObservation(latest, observationDigest, policyDigest)) return latest;
-		}
-		return checkpointMatchesObservation(base, observationDigest, policyDigest) ? base : undefined;
-	}
-
-	private async readLatestRepairCheckpoint(ref: RunRef): Promise<MutationPhaseCheckpoint | undefined> {
-		try {
-			const value = JSON.parse(
-				(await this.store.readArtifact(ref, "workflow/latest-repair-checkpoint.json")).toString("utf8"),
-			);
-			const checkpoint = decode(MutationPhaseCheckpointSchema, value);
-			if (!checkpoint.phase.startsWith("repair-")) throw new Error("Latest repair checkpoint has a non-repair phase");
-			return checkpoint;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-			throw error;
-		}
-	}
-
-	private async assertApprovedDesign(ref: RunRef, record: ApprovedDesignRecord): Promise<void> {
-		const durable = await this.store.readArtifact(ref, `approved-designs/${record.approvedDesignId}/record.json`);
-		if (durable.toString("utf8") !== canonicalJson(record)) {
-			throw new Error("Write context approved design contradicts immutable approved-design record");
-		}
-	}
-
-	private async assertDurableCheckpoint(ref: RunRef, checkpoint: MutationPhaseCheckpoint): Promise<void> {
-		const durable = await this.store.readCheckpoint(
-			ref,
-			checkpoint.attemptId,
-			checkpoint.sequence,
-			checkpoint.phase,
-		);
-		if (!durable || !("mutation" in durable) || canonicalJson(durable) !== canonicalJson(checkpoint)) {
-			throw new Error(`Write context checkpoint is missing or contradicts durable store: ${checkpoint.phase}`);
-		}
 	}
 
 	async recover(ref: RunRef, commandOrigin: UserOrigin): Promise<RecoveryResult> {
@@ -669,6 +609,37 @@ export class WorkflowRuntime {
 		return { ref, state, ...recovered };
 	}
 
+	async prepareResolution(ref: RunRef, ctx: ExtensionCommandContext): Promise<ResolutionSource> {
+		const records = await loadRunRecords(this.store, ref);
+		const repository = await detectRepository(ctx.cwd, this.runner);
+		if (!sameRepository(repository, records.repository) || repository.kind !== ref.backend) {
+			throw new Error("Resolution source belongs to another repository or checkout");
+		}
+		const state = await this.store.load(ref);
+		if (state.lifecycle !== "Completed" || state.outcome !== "ChangesRequired") throw new Error("Resolution source is not completed with ChangesRequired");
+		const policy = await loadResolvedPolicy(ctx, {
+			machine: join(this.agentDir, "pi-deep-work", "config.json"), canonicalRoot: repository.root,
+		});
+		if (policy.digest !== state.policyDigest) throw new Error("Resolution policy digest changed");
+		const source = await this.loadResolutionSource(ref.runId, ref.repositoryId,
+			digestFrozenArtifact(await this.store.readArtifact(ref, state.summaryArtifact)), "pending operator feedback");
+		if (state.workflow !== "build" && state.workflow !== "fix") throw new Error("Resolution source is not a write workflow");
+		const catalog = await TrustedCommandCatalog.build(policy, repository.root);
+		catalog.assertWriteReady(state.workflow);
+		const continuation = await loadWriteContinuation(this.store, ref);
+		if (continuation?.context.workflow === "fix") {
+			restoreRedContextEvidence(continuation.context, catalog);
+		}
+		const expected = continuation?.observationDigest;
+		const observation = repository.kind === "git"
+			? await captureGitObservation(repository, policy.digest, this.runner)
+			: await captureJjObservation(repository, policy.digest, this.runner);
+		if (expected ? observationSubjectDigest(observation) !== expected : observation.conflicted || observation.changedPathsDigest !== changedPathsDigest([])) {
+			throw new Error("Resolution checkout differs from the latest workflow checkpoint");
+		}
+		return source;
+	}
+
 	private async loadResolutionSource(
 		sourceRunId: string,
 		repositoryId: string,
@@ -689,10 +660,20 @@ export class WorkflowRuntime {
 		if (digestFrozenArtifact(bytes) !== expectedArtifactDigest) {
 			throw new Error("Resolution source artifact digest changed");
 		}
-		const artifact = decodeResolutionArtifact(JSON.parse(bytes.toString("utf8")));
-		const writeContext = state.workflow === "build"
-			? await readBuildContext(this.store, ref)
-			: await readFixContext(this.store, ref);
+		const summary: unknown = JSON.parse(bytes.toString("utf8"));
+		const artifact = decodeResolutionArtifact(summary);
+		const metadata = summary as Record<string, unknown>;
+		if (metadata.goal !== state.goal || metadata.proposedOutcome !== state.outcome) {
+			throw new Error("Resolution summary contradicts run metadata");
+		}
+		if (artifact.design && metadata.designDigest !== digestFrozenArtifact(canonicalJson(artifact.design))) {
+			throw new Error("Latest rejected design digest mismatch");
+		}
+		const continuation = await loadWriteContinuation(this.store, ref);
+		const writeContext = continuation?.context;
+		if (writeContext?.stage === "red" && !artifact.design) {
+			throw new Error("Latest rejected fix design bytes are missing; cannot substitute an ancestor design");
+		}
 		if (!artifact.design && !writeContext) throw new Error("Resolution source has no design or write context");
 		return {
 			runId: ref.runId,
@@ -930,6 +911,7 @@ export class WorkflowRuntime {
 		panel: ReviewPanel,
 		gates: GateExecutor,
 	): Promise<void> {
+		if (request.resolutionSource) await this.resolveDesignSource(request, repository.repositoryId);
 		const preflight = new WritePreflight(authority, trees, repository, policy, this.runner);
 		const approver = new DesignApprover(panel, catalog, this.store, ref, async () => (await trees.captureObservation()).observation);
 		const implementation = new ImplementationAgent(authority, gateway, boundary, trees, this.store, ref);
@@ -963,70 +945,31 @@ export class WorkflowRuntime {
 			repair,
 		);
 		if (request.resolutionSource?.writeContext) {
-			const sourceRef = await this.store.find(request.resolutionSource.runId);
-			const sourceContext = request.resolutionSource.writeContext;
-			const localContext = request.workflow === "build"
-				? await readBuildContext(this.store, ref)
-				: await readFixContext(this.store, ref);
-			const context = localContext ?? sourceContext;
-			if (context.workflow !== request.workflow) throw new Error("Resolution context workflow mismatch");
-			if (context.stage !== "red") {
-				await this.assertApprovedDesign(localContext ? ref : sourceRef, context.approvedDesign);
-			}
-			let baseCheckpoint: MutationPhaseCheckpoint;
-			let checkpointRef: RunRef;
-			if (context.stage === "implemented") {
-				baseCheckpoint = context.implementationCheckpoint;
-				checkpointRef = localContext ? ref : sourceRef;
-			} else if (context.workflow === "fix") {
-				baseCheckpoint = context.regressionCheckpoint;
-				checkpointRef = sourceRef;
-			} else {
-				throw new Error("Build resolution has no implementation checkpoint");
-			}
+			const continuation = await loadWriteContinuation(this.store, ref);
+			if (!continuation) throw new Error("Resolution has no durable write context");
 			const current = await trees.captureObservation();
-			const sourceCheckpoint = await this.matchingWriteCheckpoint(
-				checkpointRef,
-				baseCheckpoint,
-				observationSubjectDigest(current.observation),
-				policy.digest,
-			);
-			if (!sourceCheckpoint) throw new Error("Resolution checkout differs from the source workflow checkpoint");
-			const completedAt = () => new Date().toISOString();
+			if (observationSubjectDigest(current.observation) !== continuation.observationDigest) {
+				await authority.manualInspection("Resolution checkout differs from the latest workflow checkpoint", new Date().toISOString());
+				return;
+			}
+			const active = await this.store.load(ref);
+			if (active.lifecycle !== "Active") throw new Error("Resolution requires an Active run");
+			const context = { ...continuation.context, attemptId: active.attemptId };
+			const common = {
+				origin: request.origin, authority, gateway, trees, implementation, qualifier,
+				store: this.store, ref,
+				checkpoint: continuation.checkpoint,
+				completedAt: () => new Date().toISOString(),
+				resolutionFeedback: await loadContinuationFeedback(this.store, ref),
+			};
 			if (context.workflow === "build") {
-				await resumeBuildFromContext({
-					context,
-					origin: request.origin,
-					authority,
-					gateway,
-					trees,
-					implementation,
-					qualifier,
-					store: this.store,
-					ref,
-					checkpoint: sourceCheckpoint,
-					completedAt,
-					resolutionFeedback: request.resolutionSource.feedback,
-				});
+				await resumeBuildFromContext({ ...common, context });
 			} else {
 				await resumeFixFromContext({
-					context,
-					origin: request.origin,
-					authority,
-					gateway,
-					trees,
-					implementation,
-					qualifier,
-					store: this.store,
-					ref,
-					checkpoint: sourceCheckpoint,
-					completedAt,
-					resolutionFeedback: request.resolutionSource.feedback,
+					...common, context, approver, catalog, gates,
+					evidenceRef: continuation.evidenceRef,
+					maxRevisionRounds: policy.machine.maxRepairRounds,
 					...(request.resolutionSource.design ? { resolutionDesign: request.resolutionSource.design } : {}),
-					approver,
-					catalog,
-					gates,
-					evidenceRef: sourceRef,
 				});
 			}
 			return;
@@ -1042,7 +985,7 @@ export class WorkflowRuntime {
 								artifactDigest: request.resolutionSource.artifactDigest,
 								design: request.resolutionSource.design,
 								findings: request.resolutionSource.findings,
-								feedback: request.resolutionSource.feedback,
+								feedback: await loadContinuationFeedback(this.store, ref),
 							},
 						}
 					: {}),

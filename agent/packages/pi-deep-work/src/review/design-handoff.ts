@@ -23,6 +23,10 @@ const finding = Type.Object(
 		severity: Type.Union([Type.Literal("blocker"), Type.Literal("important"), Type.Literal("suggestion")]),
 		title: nonEmpty,
 		detail: nonEmpty,
+		path: Type.Optional(nonEmpty),
+		line: Type.Optional(Type.Integer({ minimum: 1 })),
+		evidence: Type.Optional(Type.Array(nonEmpty)),
+		recommendation: Type.Optional(nonEmpty),
 	},
 	{ additionalProperties: false },
 );
@@ -86,6 +90,7 @@ export interface DesignHandoff {
 	designDigest: string;
 	findings: readonly CanonicalFinding[];
 	approvedDesign?: ApprovedDesignRecord;
+	feedback?: string;
 }
 
 export interface DesignLineage {
@@ -130,6 +135,7 @@ export async function loadDesignHandoff(
 		design,
 		designDigest: output.designDigest,
 		findings,
+		...(output.source ? { feedback: output.source.feedback } : {}),
 	};
 	if (state.outcome !== "DesignApproved") return handoff;
 	const approval = output.approval;
@@ -270,6 +276,9 @@ export function renderDesignMarkdown(input: {
 					"",
 					finding.detail,
 					"",
+					...(finding.path ? [`Location: \`${finding.path}${finding.line === undefined ? "" : `:${finding.line}`}\``, ""] : []),
+					...(finding.evidence?.length ? ["Evidence:", ...finding.evidence.map((entry) => `- ${entry}`), ""] : []),
+					...(finding.recommendation ? [`Recommendation: ${finding.recommendation}`, ""] : []),
 					`Reviewer: \`${finding.reviewerId}\``,
 					"",
 				])

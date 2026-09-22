@@ -12,6 +12,7 @@ import { DesignApprover } from "../src/application/approve-design.ts";
 import { WritePreflight } from "../src/application/begin-write.ts";
 import { ImplementationAgent } from "../src/application/implementation-agent.ts";
 import { QualifyAndCommit } from "../src/application/qualify-and-commit.ts";
+import { RepairAgent } from "../src/application/repair-agent.ts";
 import { RegressionAgent } from "../src/application/regression-agent.ts";
 import { RunAuthority } from "../src/application/run-authority.ts";
 import { attemptId } from "../src/application/types.ts";
@@ -47,7 +48,7 @@ const temporary: string[] = [];
 const jjAvailability = await detectJjAvailability();
 const reviewerModel = "test/claude-opus-4-8";
 
-function policy(redOutcome: "fail" | "pass" | "timeout" | "drift") {
+function policy(redOutcome: "fail" | "pass" | "timeout" | "drift", repairRounds = 0) {
 	const pass = [process.execPath, "-e", "process.exit(0)"];
 	const behavior =
 		redOutcome === "timeout"
@@ -67,7 +68,7 @@ function policy(redOutcome: "fail" | "pass" | "timeout" | "drift") {
 				reviewers: [{ provider: "test", id: "claude-opus-4-8", thinkingLevel: "max" }],
 			},
 			concurrency: 1,
-			maxRepairRounds: 0,
+			maxRepairRounds: repairRounds,
 			commandTimeoutMs: 10_000,
 			minimumQuickGates: [{ id: "quick", languages: ["rust"], argv: pass, timeoutMs: 2_000 }],
 			minimumFullGates: [{ id: "full", languages: ["rust"], argv: pass, timeoutMs: 2_000 }],
@@ -172,7 +173,7 @@ class FixResumeRuntime extends WorkflowRuntime {
 	}
 }
 
-async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" | "timeout" | "drift" = "fail"): Promise<void> {
+async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" | "timeout" | "drift" = "fail", repairRounds = 0, repairSucceeds = true): Promise<void> {
 	const fixture = await createRepositoryFixture(kind);
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-deep-fix-integration-"));
 	temporary.push(agentDir);
@@ -210,7 +211,7 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 			}
 		};
 		const repository = await detectRepository(fixture.root, runner);
-		const resolved = policy(redOutcome);
+		const resolved = policy(redOutcome, repairRounds);
 		const store = new RunStore(agentDir);
 		const initial = {
 			schemaVersion: 1 as const,
@@ -250,7 +251,9 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 						agentTasks.push({ label: job.label, task: job.task });
 						const regression = job.label.includes("regression");
 						const path = regression ? "tests/behavior.rs" : "feature.txt";
-						const content = regression ? "#[test] fn regression() {}\n" : "fixed\n";
+						const content = regression ? "#[test] fn regression() {}\n"
+							: repairRounds === 0 || (job.label.startsWith("repair round") && repairSucceeds)
+								? "fixed\n" : `still broken ${agentTasks.length}\n`;
 						await mutationTools!.write.execute("mutation", { path, content }, undefined, () => undefined, undefined as never);
 						return {
 							report: {
@@ -290,7 +293,8 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 			repository.kind === "git"
 				? { kind: "git" as const, service: new GitTransactionService(authority, store, ref, repository, runner, join(agentDir, "git-transaction")) }
 				: { kind: "jj" as const, service: new JjTransactionService(authority, store, ref, repository, runner, trees) };
-		const qualifier = new QualifyAndCommit(resolved, catalog, normalizer, trees, gates, panel, gateway, store, ref, backend, null);
+		const qualifier = new QualifyAndCommit(resolved, catalog, normalizer, trees, gates, panel, gateway, store, ref, backend,
+			new RepairAgent(authority, gateway, boundary, trees, store, ref));
 		const headBefore = repository.kind === "git" ? (await fixture.run("git", ["rev-parse", "HEAD"])).stdout.trim() : undefined;
 		const bookmarkBefore = repository.kind === "jj" ? (await fixture.run("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"])).stdout.trim() : undefined;
 		commands.length = 0;
@@ -339,6 +343,25 @@ async function runCase(kind: RepositoryFixtureKind, redOutcome: "fail" | "pass" 
 				expect((await fixture.run("git", ["status", "--porcelain"])).stdout).not.toBe("");
 				expect(existsSync(join(fixture.root, "tests/behavior.rs"))).toBe(true);
 				if (redOutcome !== "pass") expect(existsSync(join(fixture.root, "feature.txt"))).toBe(false);
+			}
+			return;
+		}
+		const repairTasks = agentTasks.filter((task) => task.label.startsWith("repair round"));
+		expect(repairTasks).toHaveLength(repairRounds > 0 && repairSucceeds ? 1 : repairRounds);
+		const candidateRecords = records.filter((record) => record.subject.approvedDesignId !== undefined);
+		for (const commandId of ["quick", "full", "regression"]) {
+			expect(candidateRecords.filter((record) => record.commandId === commandId)).toHaveLength(repairTasks.length + 1);
+		}
+		if (!repairSucceeds) {
+			expect(result).toMatchObject({ status: "ChangesRequired" });
+			expect((await fixture.run("git", ["rev-parse", "HEAD"])).stdout.trim()).toBe(headBefore);
+			const output = JSON.parse((await store.readArtifact(ref, "outputs/fix.json")).toString("utf8"));
+			expect(output).toMatchObject({ phase: "behavior observations", repairRounds });
+			expect(output.output).toContain("**Stopped during:** behavior observations");
+			for (const record of candidateRecords.filter((record) => record.commandId === "regression")) {
+				const base = `verification/${record.subjectDigest}`;
+				const [file] = await readdir(join(ref.directory, "artifacts", base));
+				expect(JSON.parse((await store.readArtifact(ref, `${base}/${file}`)).toString("utf8"))).toMatchObject({ verdict: "NotVerified", subjectDigest: record.subjectDigest });
 			}
 			return;
 		}
@@ -463,6 +486,8 @@ afterEach(async () => {
 
 describe("fix integration", () => {
 	it("proves red-to-green and creates one Git commit", async () => runCase("git"), 80_000);
+	it("repairs a stable final behavior failure while retaining original red proof", async () => runCase("git", "fail", 1), 80_000);
+	it("exhausts stable final behavior failures with actionable findings and no commit", async () => runCase("git", "fail", 2, false), 80_000);
 	it("blocks when the regression passes before the fix", async () => runCase("git", "pass"), 80_000);
 	it("blocks when the red observation times out", async () => runCase("git", "timeout"), 80_000);
 	it("blocks when the red observation mutates the subject", async () => runCase("git", "drift"), 80_000);

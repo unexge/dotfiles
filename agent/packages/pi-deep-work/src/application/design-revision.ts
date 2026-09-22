@@ -12,7 +12,7 @@ interface RevisionInput<Approval extends { status: string }> {
 	initialDesign: DesignReport;
 	maxRevisionRounds: number;
 	observed: ObservationSession;
-	approve: (design: DesignReport, priorFindings: readonly CanonicalFinding[]) => Promise<Approval>;
+	approve: (design: DesignReport, priorFindings: readonly CanonicalFinding[], priorDesign?: DesignReport) => Promise<Approval>;
 	validate?: (design: DesignReport) => void;
 	context?: readonly string[];
 }
@@ -22,9 +22,10 @@ export async function reviseDesignUntilSettled<Approval extends { status: string
 ): Promise<{ design: DesignReport; approval: Approval; revisionRounds: number }> {
 	let design = input.initialDesign;
 	let priorFindings: readonly CanonicalFinding[] = [];
+	let priorDesign: DesignReport | undefined;
 	for (let round = 0; ; round++) {
 		input.validate?.(design);
-		const approval = await input.approve(design, priorFindings);
+		const approval = await input.approve(design, priorFindings, priorDesign);
 		if (!isChangesRequired(approval) || round >= input.maxRevisionRounds) {
 			return { design, approval, revisionRounds: round };
 		}
@@ -46,6 +47,7 @@ export async function reviseDesignUntilSettled<Approval extends { status: string
 		if (revision.report.value.status !== "ok") {
 			throw new DesignRevisionAgentStatusError(revision.report.value.status);
 		}
+		priorDesign = design;
 		design = revision.report.value;
 	}
 }
