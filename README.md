@@ -51,7 +51,7 @@ dot help
 - Hunk extensions
 - Nushell environment and shell configuration
 - Zellij with the pinned zjstatus v0.25.0 bottom-bar plugin
-- `magit` terminal launcher
+- `magit` terminal launcher from `bin/magit`
 - Pi instructions, settings, skills, themes, and the local `pi-deep-work` package
 - The `agent-address-todo` helper under `agent/bin/`
 

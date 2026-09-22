@@ -172,9 +172,9 @@ link_file \
   "$CONFIG_HOME/hunk/extensions/reviewed-files/src"
 prune_stale_links "$REPO_ROOT/config/hunk" "$CONFIG_HOME/hunk"
 link_file "$REPO_ROOT/config/emacs/init.el" "$HOME/.emacs.d/init.el"
-link_tree "$REPO_ROOT/config/bin" "$HOME/.local/bin"
-
+prune_stale_links "$REPO_ROOT/config/bin" "$HOME/.local/bin"
 link_file "$REPO_ROOT/bin/dot" "$HOME/.local/bin/dot"
+link_file "$REPO_ROOT/bin/magit" "$HOME/.local/bin/magit"
 link_tree "$REPO_ROOT/agent/bin" "$HOME/.local/bin"
 link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
 link_file "$REPO_ROOT/agent/AGENTS.md" "$HOME/.claude/CLAUDE.md"
