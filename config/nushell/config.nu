@@ -7,6 +7,8 @@ def md [file: path] {
     zellij run --close-on-exit --floating -- mdr $file
 }
 
+alias k = kubectl
+
 # local.nu carries aliases and commands as well as environment variables, so it
 # needs `source`. `source` is a parse-time keyword, so a missing local.nu is a
 # hard startup error and cannot be guarded with `if`; scripts/links.sh creates
