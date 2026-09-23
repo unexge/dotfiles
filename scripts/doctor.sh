@@ -25,6 +25,7 @@ for target in \
   "$HOME/.pi/agent/settings.json" \
   "$HOME/.pi/agent/packages/pi-deep-work/package.json" \
   "$HOME/.claude/CLAUDE.md" \
+  "$HOME/.codex/AGENTS.md" \
   "$HOME/.emacs.d/init.el" \
   "$CONFIG_HOME/bat/themes/ayu-dark.tmTheme" \
   "$CONFIG_HOME/git/ignore" \

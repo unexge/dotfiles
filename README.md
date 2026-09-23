@@ -52,7 +52,7 @@ dot help
 - Nushell environment and shell configuration
 - Zellij with the pinned zjstatus v0.25.0 bottom-bar plugin
 - `magit` terminal launcher from `bin/magit`
-- Pi instructions, settings, skills, themes, and the local `pi-deep-work` package
+- Shared Pi, Claude Code, and Codex instructions; Pi settings, skills, themes, and the local `pi-deep-work` package
 - The `agent-address-todo` helper under `agent/bin/`
 
 Only files tracked in this repository are linked, and links pointing at files the repository no longer contains are removed on the next `dot link`. Existing target files are moved to timestamped `.bak.*` paths before links are created. Mutable application directories are not linked wholesale, so history, caches, and local state remain outside the repository. Hunk's immutable extension source directory is linked as a unit so its TSX loader can resolve host-provided modules from the canonical source root.
@@ -76,7 +76,7 @@ agent/settings.json        Pi packages and global Pi settings
 agent/packages/pi-deep-work Local high-rigor Pi workflows and skills
 ```
 
-Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope. The `skills` CLI is installed globally from `packages/npm.txt` before `dot sync` processes every non-comment line in `packages/skills.txt`; a repository alone installs all of its skills, while trailing names select individual skills.
+Homebrew is used on Linux as well as macOS to keep the package setup consistent. Distro-specific package installation is intentionally outside the current scope. The `skills` CLI is installed globally from `packages/npm.txt` before `dot sync` processes every non-comment line in `packages/skills.txt`; a repository alone installs all of its skills, while trailing names select individual skills. Declared Agent Skills are installed globally for universal agents and Claude Code.
 
 ## Remote Linux access
 

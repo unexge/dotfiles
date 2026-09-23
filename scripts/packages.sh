@@ -115,14 +115,14 @@ install_skills() {
 
     if [[ -z "${skills// }" ]]; then
       info "Installing skills from $repo"
-      skills add "$repo" --global --yes --agent universal </dev/null
+      skills add "$repo" --global --yes --agent universal --agent claude-code </dev/null
       continue
     fi
 
     read -r -a selected_skills <<< "$skills"
     for skill in "${selected_skills[@]}"; do
       info "Installing skill $skill from $repo"
-      skills add "$repo" --skill "$skill" --global --yes --agent universal </dev/null
+      skills add "$repo" --skill "$skill" --global --yes --agent universal --agent claude-code </dev/null
     done
   done < "$REPO_ROOT/packages/skills.txt"
 }
