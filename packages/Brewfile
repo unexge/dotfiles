@@ -1,3 +1,5 @@
+tap "withgraphite/tap"
+
 brew "bat"
 brew "btop"
 brew "cargo-binstall"
@@ -6,6 +8,7 @@ brew "dust"
 brew "emacs"
 brew "gh"
 brew "git-delta"
+brew "withgraphite/tap/graphite"
 brew "helix"
 brew "htop"
 brew "jq"
